@@ -14,7 +14,7 @@ const POSITIONS_PER_BLOCK: BlockSize = DEFAULT_POSITIONS_PER_BLOCK;
 const INITIAL_STASH_OVERFLOW_SIZE: StashSize = DEFAULT_STASH_OVERFLOW_SIZE;
 
 const BLOCK_SIZE: BlockSize = 64;
-const DB_SIZE: Address = 1024;
+const DB_SIZE: Address = 8192;
 
 fn qsort(arr: &mut [u8]) {
     if arr.len() <= 1 {

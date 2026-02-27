@@ -168,12 +168,13 @@ impl<V: OramBlock> ObliviousStash<V> {
         }
 
         if is_log {
-            let mut result = 0;
-            for i in self.path_size.try_into().unwrap()..(self.blocks.len()) {
-                if !self.blocks[i].is_dummy() {
-                    result += 1;
-                }
-            }
+            // let mut result = 0;
+            // for i in self.path_size.try_into().unwrap()..(self.blocks.len()) {
+            //     if !self.blocks[i].is_dummy() {
+            //         result += 1;
+            //     }
+            // }
+            let result = self.occupancy();
             println!("\n\nwrite bandwidth:{}\n", path_size);
             println!("current stash occupancy:{}\n", result);
         }
@@ -226,7 +227,6 @@ impl<V: OramBlock> ObliviousStash<V> {
         Ok(result)
     }
 
-    #[cfg(test)]
     pub fn occupancy(&self) -> StashSize {
         let mut result = 0;
         for i in self.path_size.try_into().unwrap()..(self.blocks.len()) {
