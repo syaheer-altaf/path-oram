@@ -58,8 +58,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         database.push(block);
     }
 
-    // println!("database[0] (normal access):\n\n {:?}\n", database[0]);
-    // println!("is database[0] sorted (normal access)? {}", is_sort(&database[0]));
+    println!("database[0] (normal access):\n\n {:?}\n", database[0]);
+    println!("is database[0] sorted (normal access)? {}", is_sort(&database[0]));
 
     // Initialize oram
     let mut oram =
@@ -77,12 +77,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Modify the database via oram
     let mut arr = oram.read(0 as Address, &mut rng).unwrap().data;
-    println!("Running quicksort using ORAM...");
     qsort(&mut arr);
-    println!("Running quicksort directly (without ORAM)..");
-    qsort(&mut database[0]);
-    // oram.write(0 as Address, BlockValue::new(arr), &mut rng)?;
-    // println!("database[0] (oram access read):\n\n {:?}\n", oram.read(0 as Address, &mut rng).unwrap().data);
-    // println!("is database[0] sorted (oram access read)? {}", is_sort(&oram.read(0 as Address, &mut rng).unwrap().data));
+    oram.write(0 as Address, BlockValue::new(arr), &mut rng)?;
+    println!("database[0] (oram access read):\n\n {:?}\n", oram.read(0 as Address, &mut rng).unwrap().data);
+    println!("is database[0] sorted (oram access read)? {}", is_sort(&oram.read(0 as Address, &mut rng).unwrap().data));
     Ok(())
 }
