@@ -6,10 +6,11 @@ use oram::path_oram::{
 use oram::{Address, BlockSize, BlockValue, BucketSize, Oram, PathOram, RecursionCutoff, StashSize};
 
 use rand::rngs::OsRng;
-use rand::RngCore;
+use rand::{Rng, RngCore};
+use rand::distributions::Uniform;
 
 const RECURSION_CUTOFF: RecursionCutoff = DEFAULT_RECURSION_CUTOFF;
-const BUCKET_SIZE: BucketSize = 5;
+const BUCKET_SIZE: BucketSize = 3;
 const POSITIONS_PER_BLOCK: BlockSize = DEFAULT_POSITIONS_PER_BLOCK;
 const INITIAL_STASH_OVERFLOW_SIZE: StashSize = DEFAULT_STASH_OVERFLOW_SIZE;
 
@@ -59,8 +60,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         database.push(block);
     }
 
-    println!("database[0] (normal access):\n\n {:?}\n", database[0]);
-    println!("is database[0] sorted (normal access)? {}", is_sort(&database[0]));
+    // println!("database[0] (normal access):\n\n {:?}\n", database[0]);
+    // println!("is database[0] sorted (normal access)? {}", is_sort(&database[0]));
 
     // Initialize oram
     let mut oram =
@@ -77,10 +78,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Modify the database via oram
-    let mut arr = oram.read(0 as Address, &mut rng, true).unwrap().data;
-    qsort(&mut arr);
-    oram.write(0 as Address, BlockValue::new(arr), &mut rng, true)?;
-    println!("database[0] (oram access read):\n\n {:?}\n", oram.read(0 as Address, &mut rng, false).unwrap().data);
-    println!("is database[0] sorted (oram access read)? {}", is_sort(&oram.read(0 as Address, &mut rng, false).unwrap().data));
+    // let mut arr = oram.read(0 as Address, &mut rng, true).unwrap().data;
+    // qsort(&mut arr);
+    // oram.write(0 as Address, BlockValue::new(arr), &mut rng, true)?;
+    // println!("database[0] (oram access read):\n\n {:?}\n", oram.read(0 as Address, &mut rng, false).unwrap().data);
+    // println!("is database[0] sorted (oram access read)? {}", is_sort(&oram.read(0 as Address, &mut rng, false).unwrap().data));
+
+    // Run random accesses
+    for _ in 0..100 {
+        let idx = rng.sample(Uniform::new(0u32, 1024u32));
+        let _ = oram.read(idx as Address, &mut rng, true);
+    }
     Ok(())
 }
