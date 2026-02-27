@@ -85,7 +85,7 @@ impl<V: OramBlock> PathOramBlock<V> {
         self.position.ct_eq(&Self::DUMMY_POSITION)
     }
 
-    #[cfg(test)]
+    // #[cfg(test)]
     pub fn is_dummy(&self) -> bool {
         self.position == Self::DUMMY_POSITION
     }

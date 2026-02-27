@@ -9,12 +9,12 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 
 const RECURSION_CUTOFF: RecursionCutoff = DEFAULT_RECURSION_CUTOFF;
-const BUCKET_SIZE: BucketSize = 3;
+const BUCKET_SIZE: BucketSize = 5;
 const POSITIONS_PER_BLOCK: BlockSize = DEFAULT_POSITIONS_PER_BLOCK;
 const INITIAL_STASH_OVERFLOW_SIZE: StashSize = DEFAULT_STASH_OVERFLOW_SIZE;
 
 const BLOCK_SIZE: BlockSize = 64;
-const DB_SIZE: Address = 64;
+const DB_SIZE: Address = 1024;
 
 fn qsort(arr: &mut [u8]) {
     if arr.len() <= 1 {

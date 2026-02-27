@@ -8,7 +8,9 @@
 //! A trait representing a Path ORAM stash.
 
 use crate::{
-    Address, BucketSize, OramBlock, OramError, StashSize, bucket::{self, Bucket, PathOramBlock}, utils::{CompleteBinaryTreeIndex, TreeIndex, bitonic_sort_by_keys}
+    bucket::{Bucket, PathOramBlock},
+    utils::{bitonic_sort_by_keys, CompleteBinaryTreeIndex, TreeIndex},
+    Address, BucketSize, OramBlock, OramError, StashSize,
 };
 
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
@@ -166,7 +168,14 @@ impl<V: OramBlock> ObliviousStash<V> {
         }
 
         if is_log {
-            println!("\n\nWrite bandwidth:{}\n", path_size);
+            let mut result = 0;
+            for i in self.path_size.try_into().unwrap()..(self.blocks.len()) {
+                if !self.blocks[i].is_dummy() {
+                    result += 1;
+                }
+            }
+            println!("\n\nwrite bandwidth:{}\n", path_size);
+            println!("current stash occupancy:{}\n", result);
         }
         Ok(())
     }
@@ -245,7 +254,7 @@ impl<V: OramBlock> ObliviousStash<V> {
         }
 
         if is_log {
-            println!("\n\nRead bandwidth:{}\n", self.path_size);
+            println!("\n\nread bandwidth:{}\n", self.path_size);
         }
         Ok(())
     }
