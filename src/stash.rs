@@ -8,9 +8,7 @@
 //! A trait representing a Path ORAM stash.
 
 use crate::{
-    bucket::{Bucket, PathOramBlock},
-    utils::{bitonic_sort_by_keys, CompleteBinaryTreeIndex, TreeIndex},
-    Address, BucketSize, OramBlock, OramError, StashSize,
+    Address, BucketSize, OramBlock, OramError, StashSize, bucket::{self, Bucket, PathOramBlock}, utils::{CompleteBinaryTreeIndex, TreeIndex, bitonic_sort_by_keys}
 };
 
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
@@ -44,6 +42,7 @@ impl<V: OramBlock> ObliviousStash<V> {
         &mut self,
         physical_memory: &mut [Bucket<V, Z>],
         position: TreeIndex,
+        is_log: bool,
     ) -> Result<(), OramError> {
         let height = position.ct_depth();
         let mut level_assignments = vec![TreeIndex::MAX; self.len()];
@@ -154,6 +153,7 @@ impl<V: OramBlock> ObliviousStash<V> {
         bitonic_sort_by_keys(&mut self.blocks, &mut level_assignments);
 
         // Write the first Z * height blocks into slots in the tree
+        let mut path_size = 0;
         for depth in 0..=height {
             let bucket_to_write =
                 &mut physical_memory[usize::try_from(position.ct_node_on_path(depth, height))?];
@@ -162,8 +162,12 @@ impl<V: OramBlock> ObliviousStash<V> {
 
                 bucket_to_write.blocks[slot_number] = self.blocks[stash_index];
             }
+            path_size += bucket_to_write.blocks.len();
         }
 
+        if is_log {
+            println!("\n\nWrite bandwidth:{}\n", path_size);
+        }
         Ok(())
     }
 

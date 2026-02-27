@@ -1,6 +1,6 @@
 #[warn(unused_imports)]
 use oram::path_oram::{
-    DEFAULT_BLOCKS_PER_BUCKET, DEFAULT_POSITIONS_PER_BLOCK, DEFAULT_RECURSION_CUTOFF,
+    DEFAULT_POSITIONS_PER_BLOCK, DEFAULT_RECURSION_CUTOFF,
     DEFAULT_STASH_OVERFLOW_SIZE,
 };
 use oram::{Address, BlockSize, BlockValue, BucketSize, Oram, PathOram, RecursionCutoff, StashSize};

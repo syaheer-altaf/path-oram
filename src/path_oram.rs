@@ -278,7 +278,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
         // Evict blocks from the stash into the path that was just read,
         // replacing them with dummy blocks.
         self.stash
-            .write_to_path(&mut self.physical_memory, position)?;
+            .write_to_path(&mut self.physical_memory, position, is_log)?;
 
         result
     }
