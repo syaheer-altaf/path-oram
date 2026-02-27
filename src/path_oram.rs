@@ -10,7 +10,6 @@
 use super::{position_map::PositionMap, stash::ObliviousStash};
 use crate::{
     bucket::{Bucket, PositionBlock},
-    linear_time_oram::LinearTimeOram,
     utils::{CompleteBinaryTreeIndex, TreeHeight},
     Address, BlockSize, BucketSize, Oram, OramBlock, OramError, RecursionCutoff, StashSize,
 };
@@ -30,7 +29,7 @@ pub const DEFAULT_POSITIONS_PER_BLOCK: BlockSize = 8;
 /// The default number of overflow blocks that the Path ORAM stash (and recursive stashes) can store.
 pub const DEFAULT_STASH_OVERFLOW_SIZE: StashSize = 40;
 
-const LINEAR_TIME_ORAM_CUTOFF: RecursionCutoff = 1 << 10;
+// const LINEAR_TIME_ORAM_CUTOFF: RecursionCutoff = 1 << 10;
 
 /// A doubly oblivious Path ORAM.
 ///
@@ -82,66 +81,66 @@ pub struct PathOram<V: OramBlock, const Z: BucketSize, const AB: BlockSize> {
 }
 
 /// An `Oram` suitable for most use cases, with reasonable default choices of parameters.
-#[derive(Debug)]
-pub struct DefaultOram<V: OramBlock>(DefaultOramBackend<V>);
+// #[derive(Debug)]
+// pub struct DefaultOram<V: OramBlock>(DefaultOramBackend<V>);
 
-#[derive(Debug)]
-enum DefaultOramBackend<V: OramBlock> {
-    Path(PathOram<V, DEFAULT_BLOCKS_PER_BUCKET, DEFAULT_POSITIONS_PER_BLOCK>),
-    Linear(LinearTimeOram<V>),
-}
+// #[derive(Debug)]
+// enum DefaultOramBackend<V: OramBlock> {
+//     Path(PathOram<V, DEFAULT_BLOCKS_PER_BUCKET, DEFAULT_POSITIONS_PER_BLOCK>),
+//     Linear(LinearTimeOram<V>),
+// }
 
-impl<V: OramBlock> Oram for DefaultOram<V> {
-    type V = V;
+// impl<V: OramBlock> Oram for DefaultOram<V> {
+//     type V = V;
 
-    fn block_capacity(&self) -> Result<Address, OramError> {
-        match &self.0 {
-            DefaultOramBackend::Path(p) => p.block_capacity(),
-            DefaultOramBackend::Linear(l) => l.block_capacity(),
-        }
-    }
+//     fn block_capacity(&self) -> Result<Address, OramError> {
+//         match &self.0 {
+//             DefaultOramBackend::Path(p) => p.block_capacity(),
+//             DefaultOramBackend::Linear(l) => l.block_capacity(),
+//         }
+//     }
 
-    fn access<R: rand::RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
-        &mut self,
-        index: Address,
-        callback: F,
-        rng: &mut R,
-    ) -> Result<Self::V, OramError> {
-        match &mut self.0 {
-            DefaultOramBackend::Path(p) => p.access(index, callback, rng),
-            DefaultOramBackend::Linear(l) => l.access(index, callback, rng),
-        }
-    }
-}
+//     fn access<R: rand::RngCore + CryptoRng, F: Fn(&Self::V) -> Self::V>(
+//         &mut self,
+//         index: Address,
+//         callback: F,
+//         rng: &mut R,
+//     ) -> Result<Self::V, OramError> {
+//         match &mut self.0 {
+//             DefaultOramBackend::Path(p) => p.access(index, callback, rng),
+//             DefaultOramBackend::Linear(l) => l.access(index, callback, rng),
+//         }
+//     }
+// }
 
-impl<V: OramBlock> DefaultOram<V> {
-    /// Returns a new ORAM mapping addresses `0 <= address < block_capacity` to default `V` values.
-    ///
-    /// # Errors
-    ///
-    /// If `block_capacity` is not a power of two, returns an `InvalidConfigurationError`.
-    pub fn new<R: Rng + CryptoRng>(
-        block_capacity: Address,
-        rng: &mut R,
-    ) -> Result<Self, OramError> {
-        if block_capacity < LINEAR_TIME_ORAM_CUTOFF {
-            Ok(Self(DefaultOramBackend::Linear(LinearTimeOram::new(
-                block_capacity,
-            )?)))
-        } else {
-            Ok(Self(DefaultOramBackend::Path(PathOram::<
-                V,
-                DEFAULT_BLOCKS_PER_BUCKET,
-                DEFAULT_POSITIONS_PER_BLOCK,
-            >::new_with_parameters(
-                block_capacity,
-                rng,
-                DEFAULT_STASH_OVERFLOW_SIZE,
-                DEFAULT_RECURSION_CUTOFF,
-            )?)))
-        }
-    }
-}
+// impl<V: OramBlock> DefaultOram<V> {
+//     /// Returns a new ORAM mapping addresses `0 <= address < block_capacity` to default `V` values.
+//     ///
+//     /// # Errors
+//     ///
+//     /// If `block_capacity` is not a power of two, returns an `InvalidConfigurationError`.
+//     pub fn new<R: Rng + CryptoRng>(
+//         block_capacity: Address,
+//         rng: &mut R,
+//     ) -> Result<Self, OramError> {
+//         if block_capacity < LINEAR_TIME_ORAM_CUTOFF {
+//             Ok(Self(DefaultOramBackend::Linear(LinearTimeOram::new(
+//                 block_capacity,
+//             )?)))
+//         } else {
+//             Ok(Self(DefaultOramBackend::Path(PathOram::<
+//                 V,
+//                 DEFAULT_BLOCKS_PER_BUCKET,
+//                 DEFAULT_POSITIONS_PER_BLOCK,
+//             >::new_with_parameters(
+//                 block_capacity,
+//                 rng,
+//                 DEFAULT_STASH_OVERFLOW_SIZE,
+//                 DEFAULT_RECURSION_CUTOFF,
+//             )?)))
+//         }
+//     }
+// }
 
 impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> {
     /// Returns a new `PathOram` mapping addresses `0 <= address < block_capacity` to default `V` values,
@@ -252,6 +251,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
         address: Address,
         callback: F,
         rng: &mut R,
+        is_log: bool,
     ) -> Result<V, OramError> {
         // This operation is not constant-time, but only leaks whether the ORAM index is well-formed or not.
         if address > self.block_capacity()? {
@@ -264,12 +264,12 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
         // Get the position of the target block (with address `address`),
         // and update that block's position map entry to a fresh random position
         let new_position = CompleteBinaryTreeIndex::random_leaf(self.height, rng)?;
-        let position = self.position_map.write(address, new_position, rng)?;
+        let position = self.position_map.write(address, new_position, rng, false)?;
 
         assert!(position.is_leaf(self.height));
 
         self.stash
-            .read_from_path(&mut self.physical_memory, position)?;
+            .read_from_path(&mut self.physical_memory, position, is_log)?;
 
         // Scan the stash for the target block, read its value into `result`,
         // and overwrite its position (and possibly its value).
@@ -321,30 +321,30 @@ mod tests {
     // Check that the stash size stays reasonably small over the test runs.
     create_path_oram_stash_size_tests!(4, 8, 16384, 40);
 
-    // Sanity checks on the `DefaultOram` convenience wrapper.
-    #[test]
-    fn default_oram_linear_correctness() {
-        let mut rng = StdRng::seed_from_u64(0);
-        let mut oram = DefaultOram::<BlockValue<1>>::new(64, &mut rng).unwrap();
-        match oram.0 {
-            DefaultOramBackend::Linear(_) => {}
-            DefaultOramBackend::Path(_) => assert!(false),
-        }
-        random_workload(&mut oram, 1000);
-    }
+    // // Sanity checks on the `DefaultOram` convenience wrapper.
+    // #[test]
+    // fn default_oram_linear_correctness() {
+    //     let mut rng = StdRng::seed_from_u64(0);
+    //     let mut oram = DefaultOram::<BlockValue<1>>::new(64, &mut rng).unwrap();
+    //     match oram.0 {
+    //         DefaultOramBackend::Linear(_) => {}
+    //         DefaultOramBackend::Path(_) => assert!(false),
+    //     }
+    //     random_workload(&mut oram, 1000);
+    // }
 
-    // This test is #[ignore]'d because it takes about 1 second to run.
-    #[test]
-    #[ignore]
-    fn default_oram_path_correctness() {
-        let mut rng = StdRng::seed_from_u64(0);
-        let mut oram = DefaultOram::<BlockValue<1>>::new(2048, &mut rng).unwrap();
-        match oram.0 {
-            DefaultOramBackend::Linear(_) => {
-                assert!(false)
-            }
-            DefaultOramBackend::Path(_) => {}
-        }
-        random_workload(&mut oram, 1000);
-    }
+    // // This test is #[ignore]'d because it takes about 1 second to run.
+    // #[test]
+    // #[ignore]
+    // fn default_oram_path_correctness() {
+    //     let mut rng = StdRng::seed_from_u64(0);
+    //     let mut oram = DefaultOram::<BlockValue<1>>::new(2048, &mut rng).unwrap();
+    //     match oram.0 {
+    //         DefaultOramBackend::Linear(_) => {
+    //             assert!(false)
+    //         }
+    //         DefaultOramBackend::Path(_) => {}
+    //     }
+    //     random_workload(&mut oram, 1000);
+    // }
 }

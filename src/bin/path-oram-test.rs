@@ -1,3 +1,4 @@
+#[warn(unused_imports)]
 use oram::path_oram::{
     DEFAULT_BLOCKS_PER_BUCKET, DEFAULT_POSITIONS_PER_BLOCK, DEFAULT_RECURSION_CUTOFF,
     DEFAULT_STASH_OVERFLOW_SIZE,
@@ -8,7 +9,7 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 
 const RECURSION_CUTOFF: RecursionCutoff = DEFAULT_RECURSION_CUTOFF;
-const BUCKET_SIZE: BucketSize = DEFAULT_BLOCKS_PER_BUCKET;
+const BUCKET_SIZE: BucketSize = 3;
 const POSITIONS_PER_BLOCK: BlockSize = DEFAULT_POSITIONS_PER_BLOCK;
 const INITIAL_STASH_OVERFLOW_SIZE: StashSize = DEFAULT_STASH_OVERFLOW_SIZE;
 
@@ -72,14 +73,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Populate oram
     for (i, bytes) in database.iter().enumerate() {
-        oram.write(i as Address, BlockValue::new(*bytes), &mut rng)?;
+        oram.write(i as Address, BlockValue::new(*bytes), &mut rng, false)?;
     }
 
     // Modify the database via oram
-    let mut arr = oram.read(0 as Address, &mut rng).unwrap().data;
+    let mut arr = oram.read(0 as Address, &mut rng, true).unwrap().data;
     qsort(&mut arr);
-    oram.write(0 as Address, BlockValue::new(arr), &mut rng)?;
-    println!("database[0] (oram access read):\n\n {:?}\n", oram.read(0 as Address, &mut rng).unwrap().data);
-    println!("is database[0] sorted (oram access read)? {}", is_sort(&oram.read(0 as Address, &mut rng).unwrap().data));
+    oram.write(0 as Address, BlockValue::new(arr), &mut rng, true)?;
+    println!("database[0] (oram access read):\n\n {:?}\n", oram.read(0 as Address, &mut rng, false).unwrap().data);
+    println!("is database[0] sorted (oram access read)? {}", is_sort(&oram.read(0 as Address, &mut rng, false).unwrap().data));
     Ok(())
 }

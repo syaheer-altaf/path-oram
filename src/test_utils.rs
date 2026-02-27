@@ -54,11 +54,11 @@ where
 
         if read_versus_write {
             assert_eq!(
-                oram.read(random_index, &mut rng).unwrap(),
+                oram.read(random_index, &mut rng, false).unwrap(),
                 mirror_array[usize::try_from(random_index).unwrap()]
             );
         } else {
-            oram.write(random_index, random_block_value, &mut rng)
+            oram.write(random_index, random_block_value, &mut rng,false)
                 .unwrap();
             mirror_array[usize::try_from(random_index).unwrap()] = random_block_value;
         }
@@ -66,7 +66,7 @@ where
 
     for index in 0..capacity {
         assert_eq!(
-            oram.read(index, &mut rng).unwrap(),
+            oram.read(index, &mut rng, false).unwrap(),
             mirror_array[usize::try_from(index).unwrap()],
             "{index}"
         )
@@ -94,11 +94,11 @@ where
 
             if read_versus_write {
                 assert_eq!(
-                    oram.read(index, &mut rng).unwrap(),
+                    oram.read(index, &mut rng, false).unwrap(),
                     mirror_array[usize::try_from(index).unwrap()]
                 );
             } else {
-                oram.write(index, random_block_value, &mut rng).unwrap();
+                oram.write(index, random_block_value, &mut rng, false).unwrap();
                 mirror_array[usize::try_from(index).unwrap()] = random_block_value;
             }
         }
@@ -106,7 +106,7 @@ where
 
     for index in 0..capacity {
         assert_eq!(
-            oram.read(index, &mut rng).unwrap(),
+            oram.read(index, &mut rng, false).unwrap(),
             mirror_array[usize::try_from(index).unwrap()],
             "{index}"
         )
@@ -256,8 +256,9 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for StashSizeM
         index: Address,
         callback: F,
         rng: &mut R,
+        is_log: bool,
     ) -> Result<V, OramError> {
-        let result = self.oram.access(index, callback, rng);
+        let result = self.oram.access(index, callback, rng, is_log);
         let stash_size = self.oram.stash_occupancy();
         assert!(stash_size < 10);
         result

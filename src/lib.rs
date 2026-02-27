@@ -105,7 +105,7 @@ mod test_utils;
 pub(crate) mod utils;
 
 pub use crate::bucket::BlockValue;
-pub use crate::path_oram::DefaultOram;
+// pub use crate::path_oram::DefaultOram;
 pub use crate::path_oram::PathOram;
 
 /// The numeric type used to specify the size of an ORAM block in bytes.
@@ -180,6 +180,7 @@ where
         index: Address,
         callback: F,
         rng: &mut R,
+        is_log: bool,
     ) -> Result<Self::V, OramError>;
 
     /// Obliviously reads the value stored at `index`.
@@ -187,9 +188,10 @@ where
         &mut self,
         index: Address,
         rng: &mut R,
+        is_log: bool,
     ) -> Result<Self::V, OramError> {
         let callback = |x: &Self::V| *x;
-        self.access(index, callback, rng)
+        self.access(index, callback, rng, is_log)
     }
 
     /// Obliviously writes the value stored at `index`. Returns the value previously stored at `index`.
@@ -198,8 +200,9 @@ where
         index: Address,
         new_value: Self::V,
         rng: &mut R,
+        is_log: bool,
     ) -> Result<Self::V, OramError> {
         let callback = |_: &Self::V| new_value;
-        self.access(index, callback, rng)
+        self.access(index, callback, rng, is_log)
     }
 }

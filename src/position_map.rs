@@ -49,11 +49,11 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
 
         match self {
             PositionMap::Base(linear_oram) => {
-                linear_oram.write(address_of_block, position_block, rng)?;
+                linear_oram.write(address_of_block, position_block, rng, false)?;
             }
 
             PositionMap::Recursive(block_oram) => {
-                block_oram.write(address_of_block, position_block, rng)?;
+                block_oram.write(address_of_block, position_block, rng,false)?;
             }
         }
 
@@ -117,6 +117,7 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
         address: Address,
         callback: F,
         rng: &mut R,
+        _: bool,
     ) -> Result<TreeIndex, OramError> {
         let address_of_block = PositionMap::<AB, Z>::address_of_block(address);
         let address_within_block = PositionMap::<AB, Z>::address_within_block(address)?;
@@ -134,7 +135,7 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
         match self {
             // Base case: index into a linear-time ORAM.
             PositionMap::Base(linear_oram) => {
-                let block = linear_oram.access(address_of_block, block_callback, rng)?;
+                let block = linear_oram.access(address_of_block, block_callback, rng, false)?;
                 Ok(block.data[address_within_block])
             }
 
@@ -143,7 +144,7 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
             // (2) Recursively access the block at `address_of_block`, using a callback which updates only the address of interest in that block.
             // (3) Return the address of interest from the block.
             PositionMap::Recursive(block_oram) => {
-                let block = block_oram.access(address_of_block, block_callback, rng)?;
+                let block = block_oram.access(address_of_block, block_callback, rng, false)?;
 
                 let mut result = u64::default();
                 for i in 0..block.data.len() {

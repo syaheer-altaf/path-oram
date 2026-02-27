@@ -38,6 +38,7 @@ impl<V: OramBlock> Oram for LinearTimeOram<V> {
         index: Address,
         callback: F,
         _: &mut R,
+        _: bool,
     ) -> Result<V, OramError> {
         let index_in_bounds: bool = index.ct_lt(&self.block_capacity()?).into();
 

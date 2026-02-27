@@ -228,6 +228,7 @@ impl<V: OramBlock> ObliviousStash<V> {
         &mut self,
         physical_memory: &mut [Bucket<V, Z>],
         position: TreeIndex,
+        is_log: bool,
     ) -> Result<(), OramError> {
         let height = position.ct_depth();
 
@@ -239,6 +240,9 @@ impl<V: OramBlock> ObliviousStash<V> {
             }
         }
 
+        if is_log {
+            println!("\n\nRead bandwidth:{}\n", self.path_size);
+        }
         Ok(())
     }
 }
