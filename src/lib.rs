@@ -205,4 +205,45 @@ where
         let callback = |_: &Self::V| new_value;
         self.access(index, callback, rng, is_log)
     }
+
+    // Performs an oblivious batched-accesses to oram.
+    fn batched_access<R: RngCore + CryptoRng, F: Fn(Vec<&Self::V>) -> Vec<Self::V>>(
+        &mut self,
+        indices: Vec<Address>,
+        callback: F,
+        rng: &mut R,
+        is_log: bool,
+    ) -> Result<Vec<Self::V>, OramError>;
+
+    fn read_with_batch<R: RngCore + CryptoRng>(
+        &mut self,
+        indices: Vec<Address>,
+        rng: &mut R,
+        is_log: bool,
+    ) -> Result<Vec<Self::V>, OramError> {
+        let callback = |x: Vec<&Self::V>| x.into_iter().map(|v| *v).collect();
+        self.batched_access(indices, callback, rng, is_log)
+    }
+
+    fn write_with_batch<R: RngCore + CryptoRng>(
+        &mut self,
+        indices: Vec<Address>,
+        new_values: Vec<Self::V>,
+        rng: &mut R,
+        is_log: bool,
+    ) -> Result<Vec<Self::V>, OramError> {
+        if indices.len() != new_values.len() {
+            return Err(OramError::InvalidConfigurationError {
+                parameter_name: "write_with_batch".to_string(),
+                parameter_value: format!(
+                    "indices has length {}, but new_values has length {}",
+                    indices.len(),
+                    new_values.len()
+                ),
+            });
+        }
+
+        let callback = move |_: Vec<&Self::V>| new_values.clone();
+        self.batched_access(indices, callback, rng, is_log)
+    }
 }

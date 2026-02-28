@@ -53,7 +53,7 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
             }
 
             PositionMap::Recursive(block_oram) => {
-                block_oram.write(address_of_block, position_block, rng,false)?;
+                block_oram.write(address_of_block, position_block, rng, false)?;
             }
         }
 
@@ -155,5 +155,73 @@ impl<const AB: BlockSize, const Z: BucketSize> Oram for PositionMap<AB, Z> {
                 Ok(result)
             }
         }
+    }
+
+    // `batched-access` here is the same as the `access` above (so there is literally no performance benefit here).
+    // Only the `batched-access` defined in `path_oram.rs` has benefits, performance-wise.
+    // The reason for implementation is due to `batched_oram` being defined in the `Oram` trait in `lib.rs`.
+    fn batched_access<R: RngCore + CryptoRng, F: Fn(Vec<&Self::V>) -> Vec<Self::V>>(
+        &mut self,
+        indices: Vec<Address>,
+        callback: F,
+        rng: &mut R,
+        _is_log: bool,
+    ) -> Result<Vec<Self::V>, OramError> {
+        let mut old_values: Vec<Self::V> = Vec::with_capacity(indices.len());
+
+        for &address in &indices {
+            let address_of_block = PositionMap::<AB, Z>::address_of_block(address);
+            let address_within_block = PositionMap::<AB, Z>::address_within_block(address)?;
+
+            let block = match self {
+                PositionMap::Base(linear_oram) => linear_oram.read(address_of_block, rng, false)?,
+                PositionMap::Recursive(block_oram) => {
+                    block_oram.read(address_of_block, rng, false)?
+                }
+            };
+
+            let mut result = TreeIndex::default();
+            for i in 0..block.data.len() {
+                let index_matches = i.ct_eq(&address_within_block);
+                result.conditional_assign(&block.data[i], index_matches);
+            }
+
+            old_values.push(result);
+        }
+
+        let callback_input: Vec<&Self::V> = old_values.iter().collect();
+        let new_values = callback(callback_input);
+
+        if new_values.len() != indices.len() {
+            return Err(OramError::InvalidConfigurationError {
+                parameter_name: "callback output length".to_string(),
+                parameter_value: format!("expected {}, got {}", indices.len(), new_values.len()),
+            });
+        }
+
+        for (&address, &new_value) in indices.iter().zip(new_values.iter()) {
+            let address_of_block = PositionMap::<AB, Z>::address_of_block(address);
+            let address_within_block = PositionMap::<AB, Z>::address_within_block(address)?;
+
+            let block_callback = |block: &PositionBlock<AB>| {
+                let mut result: PositionBlock<AB> = *block;
+                for i in 0..block.data.len() {
+                    let index_matches = i.ct_eq(&address_within_block);
+                    result.data[i].conditional_assign(&new_value, index_matches);
+                }
+                result
+            };
+
+            match self {
+                PositionMap::Base(linear_oram) => {
+                    linear_oram.access(address_of_block, block_callback, rng, false)?;
+                }
+                PositionMap::Recursive(block_oram) => {
+                    block_oram.access(address_of_block, block_callback, rng, false)?;
+                }
+            }
+        }
+
+        Ok(old_values)
     }
 }

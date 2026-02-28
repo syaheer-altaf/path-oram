@@ -58,7 +58,7 @@ where
                 mirror_array[usize::try_from(random_index).unwrap()]
             );
         } else {
-            oram.write(random_index, random_block_value, &mut rng,false)
+            oram.write(random_index, random_block_value, &mut rng, false)
                 .unwrap();
             mirror_array[usize::try_from(random_index).unwrap()] = random_block_value;
         }
@@ -98,7 +98,8 @@ where
                     mirror_array[usize::try_from(index).unwrap()]
                 );
             } else {
-                oram.write(index, random_block_value, &mut rng, false).unwrap();
+                oram.write(index, random_block_value, &mut rng, false)
+                    .unwrap();
                 mirror_array[usize::try_from(index).unwrap()] = random_block_value;
             }
         }
@@ -262,6 +263,17 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for StashSizeM
         let stash_size = self.oram.stash_occupancy();
         assert!(stash_size < 10);
         result
+    }
+
+    fn batched_access<R: rand::RngCore + rand::CryptoRng, F: Fn(Vec<&Self::V>) -> Vec<Self::V>>(
+            &mut self,
+            indices: Vec<Address>,
+            callback: F,
+            rng: &mut R,
+            is_log: bool,
+        ) -> Result<Vec<Self::V>, OramError> {
+        let results = self.oram.batched_access(indices, callback, rng, is_log);
+        results
     }
 }
 

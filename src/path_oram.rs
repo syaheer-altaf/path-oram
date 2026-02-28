@@ -286,6 +286,36 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
     fn block_capacity(&self) -> Result<Address, OramError> {
         Ok(u64::try_from(self.physical_memory.len())?)
     }
+
+    fn batched_access<R: rand::RngCore + CryptoRng, F: Fn(Vec<&Self::V>) -> Vec<Self::V>>(
+        &mut self,
+        indices: Vec<Address>,
+        callback: F,
+        rng: &mut R,
+        is_log: bool,
+    ) -> Result<Vec<Self::V>, OramError> {
+        for address in indices.iter() {
+            if *address > self.block_capacity()? {
+                return Err(OramError::AddressOutOfBoundsError {
+                    attempted: *address,
+                    capacity: self.block_capacity()?,
+                });
+            }
+        }
+
+        let mut results: Vec<Self::V> = vec![];
+        let mut positions: Vec<Address> = vec![];
+
+        for address in indices.iter() {
+            let new_position: u64 = CompleteBinaryTreeIndex::random_leaf(self.height, rng)?;
+            let position = self
+                .position_map
+                .write(*address, new_position, rng, false)?;
+            assert!(position.is_leaf(self.height));
+            positions.push(position);
+        }
+        Ok(results)
+    }
 }
 
 #[cfg(test)]

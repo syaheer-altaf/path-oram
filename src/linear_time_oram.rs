@@ -70,6 +70,64 @@ impl<V: OramBlock> Oram for LinearTimeOram<V> {
     fn block_capacity(&self) -> Result<Address, OramError> {
         Ok(u64::try_from(self.physical_memory.len())?)
     }
+    // `batched-access` here is the same as the `access` above (so there is literally no performance benefit here).
+    // Only the `batched-access` defined in `path_oram.rs` has benefits, performance-wise.
+    // The reason for implementation is due to `batched_oram` being defined in the `Oram` trait in `lib.rs`.
+    fn batched_access<R: RngCore + CryptoRng, F: Fn(Vec<&Self::V>) -> Vec<Self::V>>(
+        &mut self,
+        indices: Vec<Address>,
+        callback: F,
+        _rng: &mut R,
+        _is_log: bool,
+    ) -> Result<Vec<Self::V>, OramError> {
+        let capacity = self.block_capacity()?;
+
+        for &address in &indices {
+            let in_bounds: bool = address.ct_lt(&capacity).into();
+            if !in_bounds {
+                return Err(OramError::AddressOutOfBoundsError {
+                    attempted: address,
+                    capacity,
+                });
+            }
+        }
+
+        let mut results = vec![Self::V::default(); indices.len()];
+
+        // First pass: obliviously read out all requested entries.
+        for i in 0..self.physical_memory.len() {
+            let entry = &self.physical_memory[i];
+            let physical_index = u64::try_from(i)?;
+
+            for (j, &address) in indices.iter().enumerate() {
+                let is_requested_index = physical_index.ct_eq(&address);
+                results[j].conditional_assign(entry, is_requested_index);
+            }
+        }
+
+        // Feed references to the old values into the callback.
+        let callback_input: Vec<&Self::V> = results.iter().collect();
+        let new_values = callback(callback_input);
+
+        if new_values.len() != indices.len() {
+            return Err(OramError::InvalidConfigurationError {
+                parameter_name: "callback output length".to_string(),
+                parameter_value: format!("expected {}, got {}", indices.len(), new_values.len()),
+            });
+        }
+
+        // Second pass: obliviously write back the updated values.
+        for i in 0..self.physical_memory.len() {
+            let physical_index = u64::try_from(i)?;
+
+            for (j, &address) in indices.iter().enumerate() {
+                let is_requested_index = physical_index.ct_eq(&address);
+                self.physical_memory[i].conditional_assign(&new_values[j], is_requested_index);
+            }
+        }
+
+        Ok(results)
+    }
 }
 
 #[cfg(test)]
