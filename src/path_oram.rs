@@ -10,7 +10,7 @@
 use super::{position_map::PositionMap, stash::ObliviousStash};
 use crate::{
     bucket::{Bucket, PositionBlock},
-    utils::{CompleteBinaryTreeIndex, TreeHeight},
+    utils::{CompleteBinaryTreeIndex, TreeHeight, TreeIndex},
     Address, BlockSize, BucketSize, Oram, OramBlock, OramError, RecursionCutoff, StashSize,
 };
 use rand::{CryptoRng, Rng};
@@ -294,26 +294,51 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
         rng: &mut R,
         is_log: bool,
     ) -> Result<Vec<Self::V>, OramError> {
-        for address in indices.iter() {
-            if *address > self.block_capacity()? {
+        // Same spirit as the library version: reject malformed addresses up front.
+        for &address in &indices {
+            if address > self.block_capacity()? {
                 return Err(OramError::AddressOutOfBoundsError {
-                    attempted: *address,
+                    attempted: address,
                     capacity: self.block_capacity()?,
                 });
             }
         }
 
-        let mut results: Vec<Self::V> = vec![];
-        let mut positions: Vec<Address> = vec![];
+        // For each logical address:
+        // - sample a fresh leaf
+        // - update the position map entry
+        // - remember the old leaf so we know which path(s) to read
+        let mut old_positions: Vec<TreeIndex> = Vec::with_capacity(indices.len());
+        let mut new_positions: Vec<TreeIndex> = Vec::with_capacity(indices.len());
 
-        for address in indices.iter() {
-            let new_position: u64 = CompleteBinaryTreeIndex::random_leaf(self.height, rng)?;
-            let position = self
-                .position_map
-                .write(*address, new_position, rng, false)?;
-            assert!(position.is_leaf(self.height));
-            positions.push(position);
+        for &address in &indices {
+            let new_position: TreeIndex = CompleteBinaryTreeIndex::random_leaf(self.height, rng)?;
+            let old_position: TreeIndex =
+                self.position_map.write(address, new_position, rng, false)?;
+
+            assert!(old_position.is_leaf(self.height));
+
+            old_positions.push(old_position);
+            new_positions.push(new_position);
         }
+
+        // Read the union of all relevant paths into the stash.
+        let union_buckets =
+            self.stash
+                .read_from_path_union(&self.physical_memory, &old_positions, is_log)?;
+
+        // Scan/update the stash in batch.
+        // - return old values
+        // - update each accessed block's position to its fresh leaf
+        // - write callback(old_values) back into those blocks
+        let results = self
+            .stash
+            .batched_access(indices, new_positions, callback)?;
+
+        // Evict blocks from the stash back into the union of buckets we just read.
+        self.stash
+            .write_to_path_union(&mut self.physical_memory, &union_buckets, is_log)?;
+
         Ok(results)
     }
 }

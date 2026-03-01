@@ -258,4 +258,366 @@ impl<V: OramBlock> ObliviousStash<V> {
         }
         Ok(())
     }
+
+    // The following methods are used alongside `batched_access`.
+    pub fn read_from_path_union<const Z: crate::BucketSize>(
+        &mut self,
+        physical_memory: &[Bucket<V, Z>],
+        positions: &[TreeIndex],
+        is_log: bool,
+    ) -> Result<Vec<u64>, OramError> {
+        use std::collections::HashSet;
+
+        let mut paths_union: Vec<u64> = Vec::new();
+        let mut seen: HashSet<u64> = HashSet::new();
+
+        let fixed_path_block_count: usize = usize::try_from(self.path_size)?;
+        let buckets_per_path = self.path_size / u64::try_from(Z)?;
+
+        for &position in positions {
+            let height = position.ct_depth();
+
+            for i in (0..buckets_per_path).rev() {
+                let bucket_index = position.ct_node_on_path(i, height);
+                if seen.insert(bucket_index) {
+                    paths_union.push(bucket_index);
+                }
+            }
+        }
+
+        let union_block_count = paths_union.len() * Z;
+
+        // If the union needs a larger scratch prefix than the fixed single-path prefix,
+        // preserve the existing overflow stash blocks by shifting them right.
+        if union_block_count > fixed_path_block_count {
+            let extra = union_block_count - fixed_path_block_count;
+            let old_len = self.blocks.len();
+
+            self.blocks
+                .resize(old_len + extra, PathOramBlock::<V>::dummy());
+
+            // Shift the old overflow region [fixed_path_block_count, old_len) to the right by `extra`.
+            for i in (fixed_path_block_count..old_len).rev() {
+                self.blocks[i + extra] = self.blocks[i];
+            }
+
+            // Optional but clean: blank out the newly opened region.
+            for i in fixed_path_block_count..(fixed_path_block_count + extra) {
+                self.blocks[i] = PathOramBlock::<V>::dummy();
+            }
+        }
+
+        // Load the union buckets into the front scratch region.
+        for (i, &bid) in paths_union.iter().enumerate() {
+            let bucket = physical_memory[usize::try_from(bid)?];
+            for slot_index in 0..Z {
+                self.blocks[Z * i + slot_index] = bucket.blocks[slot_index];
+            }
+        }
+
+        if is_log {
+            println!("\n\nread bandwidth:{}\n", union_block_count);
+        }
+
+        Ok(paths_union)
+    }
+
+    pub fn write_to_path_union<const Z: BucketSize>(
+        &mut self,
+        physical_memory: &mut [Bucket<V, Z>],
+        union_buckets: &[TreeIndex],
+        is_log: bool,
+    ) -> Result<(), OramError> {
+        use std::collections::HashSet;
+        use subtle::Choice;
+
+        if union_buckets.is_empty() {
+            if is_log {
+                println!("\n\nwrite bandwidth:0\n");
+                println!("current stash occupancy:{}\n", self.occupancy());
+            }
+            return Ok(());
+        }
+
+        // Deduplicate defensively, then order buckets deepest-to-shallowest so that
+        // real blocks are evicted as deep as possible, analogous to write_to_path().
+        let mut seen = HashSet::new();
+        let mut ordered_union_buckets: Vec<TreeIndex> = union_buckets
+            .iter()
+            .map(|&b| b)
+            .filter(|b| seen.insert(*b))
+            .collect();
+
+        ordered_union_buckets.sort_by(|a, b| {
+            let da = a.ct_depth();
+            let db = b.ct_depth();
+            db.cmp(&da).then_with(|| a.cmp(b))
+        });
+
+        // For each stash block, record which union-bucket slot-group it is assigned to.
+        // Values 0..ordered_union_buckets.len()-1 mean "assigned to that bucket".
+        // TreeIndex::MAX - 1 means overflow.
+        // TreeIndex::MAX means still unassigned (used mainly for dummies before fill).
+        let mut bucket_assignments = vec![TreeIndex::MAX; self.blocks.len()];
+        let mut bucket_counts = vec![0u64; ordered_union_buckets.len()];
+
+        // We need a valid leaf for dummy blocks, though it will never matter because
+        // assignments for dummies are gated by `!block_is_dummy`.
+        let max_depth = ordered_union_buckets
+            .iter()
+            .map(|b| b.ct_depth())
+            .max()
+            .unwrap_or(0);
+        let an_arbitrary_leaf: TreeIndex = 1u64 << max_depth;
+
+        // Assign all non-dummy blocks either to some bucket in the union or to overflow.
+        for (i, block) in self.blocks.iter().enumerate() {
+            let block_is_dummy = block.ct_is_dummy();
+            let block_position =
+                TreeIndex::conditional_select(&block.position, &an_arbitrary_leaf, block_is_dummy);
+
+            let mut assigned: Choice = 0.into();
+
+            // Scan candidate union buckets from deepest to shallowest.
+            for (bucket_slot, count) in bucket_counts.iter_mut().enumerate() {
+                let bucket_index = ordered_union_buckets[bucket_slot];
+                let bucket_depth = bucket_index.ct_depth();
+
+                let bucket_full: Choice = count.ct_eq(&(u64::try_from(Z)?));
+
+                // A block can be placed in bucket_index iff bucket_index lies on the
+                // path from the root to block_position.
+                let bucket_on_block_path = block_position
+                    .ct_node_on_path(bucket_depth, block_position.ct_depth())
+                    .ct_eq(&bucket_index);
+
+                let should_assign =
+                    bucket_on_block_path & (!bucket_full) & (!block_is_dummy) & (!assigned);
+                assigned |= should_assign;
+
+                let incremented = *count + 1;
+                count.conditional_assign(&incremented, should_assign);
+
+                bucket_assignments[i]
+                    .conditional_assign(&(u64::try_from(bucket_slot)?), should_assign);
+            }
+
+            // If this real block could not be placed into any bucket in the union,
+            // it remains in stash overflow.
+            bucket_assignments[i]
+                .conditional_assign(&(TreeIndex::MAX - 1), (!assigned) & (!block_is_dummy));
+        }
+
+        // Fill all remaining non-full buckets in the union with dummy blocks.
+        let mut exists_unfilled_buckets: Choice = 1.into();
+        let mut first_unassigned_block_index: usize = 0;
+
+        while exists_unfilled_buckets.into() {
+            for (i, block) in self
+                .blocks
+                .iter()
+                .enumerate()
+                .skip(first_unassigned_block_index)
+            {
+                // Preserve the library's convention: last block reserved for writes
+                // to uninitialized addresses.
+                if i == self.blocks.len() - 1 {
+                    break;
+                }
+
+                let block_free = block.ct_is_dummy();
+                let mut assigned: Choice = 0.into();
+
+                for (bucket_slot, count) in bucket_counts.iter_mut().enumerate() {
+                    let full = count.ct_eq(&(u64::try_from(Z)?));
+                    let no_op = assigned | full | !block_free;
+
+                    bucket_assignments[i]
+                        .conditional_assign(&(u64::try_from(bucket_slot)?), !no_op);
+                    count.conditional_assign(&(*count + 1), !no_op);
+                    assigned |= !no_op;
+                }
+            }
+
+            exists_unfilled_buckets = 0.into();
+            for count in bucket_counts.iter() {
+                let full = count.ct_eq(&(u64::try_from(Z)?));
+                exists_unfilled_buckets |= !full;
+            }
+
+            // If not all buckets are filled, stash overflowed with respect to this union.
+            if exists_unfilled_buckets.into() {
+                first_unassigned_block_index = self.blocks.len() - 1;
+
+                self.blocks.resize(
+                    self.blocks.len() + STASH_GROWTH_INCREMENT,
+                    PathOramBlock::<V>::dummy(),
+                );
+                bucket_assignments.resize(
+                    bucket_assignments.len() + STASH_GROWTH_INCREMENT,
+                    TreeIndex::MAX,
+                );
+
+                log::warn!(
+                    "Stash overflow occurred during union writeback. Stash resized to {} blocks.",
+                    self.blocks.len()
+                );
+            }
+        }
+
+        bitonic_sort_by_keys(&mut self.blocks, &mut bucket_assignments);
+
+        // Write the first |union_buckets| * Z blocks back into the selected buckets.
+        let mut write_bandwidth = 0usize;
+        for (bucket_slot, &bucket_index) in ordered_union_buckets.iter().enumerate() {
+            let bucket_to_write = &mut physical_memory[usize::try_from(bucket_index)?];
+            for slot_number in 0..Z {
+                let stash_index = bucket_slot * Z + slot_number;
+                bucket_to_write.blocks[slot_number] = self.blocks[stash_index];
+            }
+            write_bandwidth += bucket_to_write.blocks.len();
+        }
+
+        // IMPORTANT:
+        // Unlike the fixed-size single-path case, union writeback may use a variable-size
+        // prefix of the stash. If we leave those blocks in-place, later accesses may not
+        // overwrite all of them, leaving stale duplicates in stash.
+        let written_block_count = ordered_union_buckets.len() * Z;
+        for i in 0..written_block_count {
+            self.blocks[i] = PathOramBlock::<V>::dummy();
+        }
+
+        if is_log {
+            println!("\n\nwrite bandwidth:{}\n", write_bandwidth);
+            println!("current stash occupancy:{}\n", self.occupancy());
+        }
+
+        Ok(())
+    }
+
+    pub fn batched_access<F: Fn(Vec<&V>) -> Vec<V>>(
+        &mut self,
+        addresses: Vec<Address>,
+        new_positions: Vec<TreeIndex>,
+        value_callback: F,
+    ) -> Result<Vec<V>, OramError> {
+        if addresses.len() != new_positions.len() {
+            return Err(OramError::InvalidConfigurationError {
+                parameter_name: "batched_access input lengths".to_string(),
+                parameter_value: format!(
+                    "addresses has length {}, but new_positions has length {}",
+                    addresses.len(),
+                    new_positions.len()
+                ),
+            });
+        }
+
+        // For sanity and to avoid ambiguous semantics / duplicate stash entries,
+        // require distinct logical addresses in one batch.
+        // for i in 0..addresses.len() {
+        //     for j in (i + 1)..addresses.len() {
+        //         if addresses[i] == addresses[j] {
+        //             return Err(OramError::InvalidConfigurationError {
+        //                 parameter_name: "batched_access addresses".to_string(),
+        //                 parameter_value: format!(
+        //                     "duplicate logical address {} appears multiple times in one batch",
+        //                     addresses[i]
+        //                 ),
+        //             });
+        //         }
+        //     }
+        // }
+
+        let mut results: Vec<V> = vec![V::default(); addresses.len()];
+        let mut found: Vec<Choice> = vec![0.into(); addresses.len()];
+
+        // First pass: read old values out of the stash.
+        for block in &self.blocks {
+            for i in 0..addresses.len() {
+                let is_requested_index = block.address.ct_eq(&addresses[i]);
+
+                found[i].conditional_assign(&1.into(), is_requested_index);
+                results[i].conditional_assign(&block.value, is_requested_index);
+            }
+        }
+
+        // Apply the batched callback once.
+        let callback_input: Vec<&V> = results.iter().collect();
+        let values_to_write = value_callback(callback_input);
+
+        if values_to_write.len() != addresses.len() {
+            return Err(OramError::InvalidConfigurationError {
+                parameter_name: "batched_access callback output length".to_string(),
+                parameter_value: format!(
+                    "expected {}, got {}",
+                    addresses.len(),
+                    values_to_write.len()
+                ),
+            });
+        }
+
+        // Second pass: update all existing matching blocks in-place.
+        for block in &mut self.blocks {
+            for i in 0..addresses.len() {
+                let is_requested_index = block.address.ct_eq(&addresses[i]);
+
+                block
+                    .position
+                    .conditional_assign(&new_positions[i], is_requested_index);
+                block
+                    .value
+                    .conditional_assign(&values_to_write[i], is_requested_index);
+            }
+        }
+
+        // Count how many requested addresses were not found.
+        let missing_count = found.iter().filter(|c| !bool::from(**c)).count();
+
+        // Count currently available dummy slots.
+        let available_dummy_count = self
+            .blocks
+            .iter()
+            .filter(|block| bool::from(block.ct_is_dummy()))
+            .count();
+
+        // If needed, extend stash with dummy blocks so we can initialize all misses.
+        if missing_count > available_dummy_count {
+            self.blocks.resize(
+                self.blocks.len() + (missing_count - available_dummy_count),
+                PathOramBlock::<V>::dummy(),
+            );
+        }
+
+        // Initialize one new stash block for each missing address.
+        // We fill from the end, preferring dummy blocks near the back.
+        let mut next_free_slot = self.blocks.len();
+
+        for i in 0..addresses.len() {
+            if !bool::from(found[i]) {
+                loop {
+                    if next_free_slot == 0 {
+                        return Err(OramError::InvalidConfigurationError {
+                            parameter_name: "stash dummy capacity".to_string(),
+                            parameter_value: "no dummy block available for batch insertion"
+                                .to_string(),
+                        });
+                    }
+
+                    next_free_slot -= 1;
+
+                    if bool::from(self.blocks[next_free_slot].ct_is_dummy()) {
+                        break;
+                    }
+                }
+
+                self.blocks[next_free_slot] = PathOramBlock {
+                    value: values_to_write[i],
+                    address: addresses[i],
+                    position: new_positions[i],
+                };
+            }
+        }
+
+        Ok(results)
+    }
 }
