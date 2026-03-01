@@ -174,11 +174,9 @@ impl<V: OramBlock> ObliviousStash<V> {
             //         result += 1;
             //     }
             // }
-            let result = self.occupancy();
             // println!("\n\nwrite bandwidth:{}\n", path_size);
-            // println!("current stash occupancy:{}\n", result);
             let _ = append_to_file("./exp-results/bandwidth_single.log", path_size.to_string().as_str());
-            let _ = append_to_file("./exp-results/stash_single.log", result.to_string().as_str());
+            let _ = append_to_file("./exp-results/stash_single.log", self.occupancy().to_string().as_str());
         }
         Ok(())
     }
@@ -258,6 +256,7 @@ impl<V: OramBlock> ObliviousStash<V> {
         if is_log {
             // println!("\n\nread bandwidth:{}\n", self.path_size);
             let _ = append_to_file("./exp-results/bandwidth_single.log", self.path_size.to_string().as_str());
+            let _ = append_to_file("./exp-results/stash_single.log", self.occupancy().to_string().as_str());
         }
         Ok(())
     }
@@ -324,6 +323,7 @@ impl<V: OramBlock> ObliviousStash<V> {
         if is_log {
             // println!("\n\nread bandwidth:{}\n", union_block_count);
             let _ = append_to_file("./exp-results/bandwidth_batch.log", union_block_count.to_string().as_str());
+            let _ = append_to_file("./exp-results/stash_batch.log", self.occupancy().to_string().as_str());
         }
 
         Ok(paths_union)
