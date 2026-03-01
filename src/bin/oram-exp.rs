@@ -73,9 +73,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Get random indices with the size of batch.
     let indices = random_distinct_indices(&mut rng, BATCH_SIZE, DB_SIZE);
 
-    // Experiment
+    // Experiment: run monte-carlo
     // 1) make single, sequential accesses the size of batch
-    println!("\n\n=================================================================================\n\n");
     println!("{} single (read) accesses using path oram:\n\n", BATCH_SIZE);
 
     let mut oram_reads: Vec<[u8; BLOCK_SIZE]> = vec![];
@@ -85,17 +84,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         oram_reads.push(read.data);
     }
 
-    println!("\n\n=================================================================================\n\n");
 
     // 2) batched accesses to path oram
-    println!("\n\n=================================================================================\n\n");
     println!("Batched path oram with batch size {}:\n\n", BATCH_SIZE);
 
     let batch_oram_reads: Vec<[u8; BLOCK_SIZE]> = (batch_oram.read_with_batch(indices, &mut rng, true)?)
     .iter()
     .map(|b| b.data)
     .collect();
-    println!("\n\n=================================================================================\n\n");
 
     println!("\n\nAre two methods produce the same result?\n--{}", oram_reads == batch_oram_reads);
     Ok(())

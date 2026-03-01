@@ -11,10 +11,25 @@ use rand::{CryptoRng, Rng, RngCore};
 
 use subtle::{Choice, ConditionallySelectable, ConstantTimeGreater, ConstantTimeLess};
 
+use std::fs::OpenOptions;
+use std::io::prelude::*;
+use std::io;
+
 use std::num::TryFromIntError;
 
 pub(crate) type TreeIndex = u64;
 pub(crate) type TreeHeight = u64;
+
+pub fn append_to_file(file_path: &str, contents: &str) -> io::Result<()> {
+    let mut file = OpenOptions::new()
+    .create(true)
+    .write(true)
+    .append(true)
+    .open(file_path)?;
+
+    writeln!(file, "{}", contents)?;
+    Ok(())
+}
 
 pub(crate) trait CompleteBinaryTreeIndex
 where
