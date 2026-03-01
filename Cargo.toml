@@ -28,3 +28,15 @@ simplelog = "0.12"
 [[bench]]
 name = "benchmark"
 harness = false
+
+[[bin]]
+name = "linear-oram-test"
+path = "src/bin/examples/linear-oram-test.rs"
+
+[[bin]]
+name = "path-oram-test" 
+path = "src/bin/examples/path-oram-test.rs"
+
+[[bin]]
+name = "batch-path-oram-test"
+path = "src/bin/examples/batch-path-oram-test.rs"
