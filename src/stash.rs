@@ -259,6 +259,9 @@ impl<V: OramBlock> ObliviousStash<V> {
         Ok(())
     }
 
+    /*
+        TODO: REVISE `read_from_path_union`, `write_to_path_union`, `batched_access`
+     */
     // The following methods are used alongside `batched_access`.
     pub fn read_from_path_union<const Z: crate::BucketSize>(
         &mut self,

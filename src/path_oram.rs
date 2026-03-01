@@ -287,6 +287,9 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
         Ok(u64::try_from(self.physical_memory.len())?)
     }
 
+    /*
+        TODO: REVISE `batched-access`.
+     */
     fn batched_access<R: rand::RngCore + CryptoRng, F: Fn(Vec<&Self::V>) -> Vec<Self::V>>(
         &mut self,
         indices: Vec<Address>,
