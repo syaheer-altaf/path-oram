@@ -19,7 +19,7 @@ const INITIAL_STASH_OVERFLOW_SIZE: StashSize = DEFAULT_STASH_OVERFLOW_SIZE;
 
 const BLOCK_SIZE: BlockSize = 64;
 const DB_SIZE: Address = 512;
-const NUM_BATCH_TESTS: usize = 100;
+const NUM_BATCH_TESTS: usize = 1000;
 const BATCH_SIZE: usize = 8;
 
 fn random_distinct_indices(rng: &mut OsRng, count: usize, upper: Address) -> Vec<Address> {
