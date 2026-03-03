@@ -8,7 +8,7 @@ import utils as u
 def expected_bandwidth_for_m_batches(m, Z, num_leaves):
     height = int(math.log2(num_leaves))
     expectation = 0
-    for i in range(height):
+    for i in range(height + 1):
         a = 1 - math.pow(2, -i)
         b = math.pow(a, m)
         term = math.pow(2, i) * (1 - b)
@@ -16,7 +16,7 @@ def expected_bandwidth_for_m_batches(m, Z, num_leaves):
     
     return (2 * Z * expectation)
 if __name__ == "__main__":
-    NUM_BATCH_TEST = 1000
+    NUM_BATCH_TEST = 100
     ###############################################################
     # Compute (total) bandwidth for single accesses from log file #
     ###############################################################

@@ -11,6 +11,11 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 use std::collections::HashSet;
 
+
+/*
+ * NOTE: The convention used in this crate is slightly different from the original Path ORAM;
+ * In particular, N (as some power of two) = number_of_leaves in a complete tree = DB_SIZE / 2.
+*/
 const RECURSION_CUTOFF: RecursionCutoff = DEFAULT_RECURSION_CUTOFF;
 // const BUCKET_SIZE: BucketSize = 10;
 const BUCKET_SIZE: BucketSize = DEFAULT_BLOCKS_PER_BUCKET;
@@ -18,8 +23,8 @@ const POSITIONS_PER_BLOCK: BlockSize = DEFAULT_POSITIONS_PER_BLOCK;
 const INITIAL_STASH_OVERFLOW_SIZE: StashSize = DEFAULT_STASH_OVERFLOW_SIZE;
 
 const BLOCK_SIZE: BlockSize = 64;
-const DB_SIZE: Address = 512;
-const NUM_BATCH_TESTS: usize = 1000;
+const DB_SIZE: Address = 1024;
+const NUM_BATCH_TESTS: usize = 100;
 const BATCH_SIZE: usize = 8;
 
 fn random_distinct_indices(rng: &mut OsRng, count: usize, upper: Address) -> Vec<Address> {
@@ -75,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "Starting experiment with the following parameters:\n
     N = {} blocks, Block Size = {} bytes, Batch Size = {}\n\n",
-        DB_SIZE, BLOCK_SIZE, BATCH_SIZE
+        DB_SIZE / 2, BLOCK_SIZE, BATCH_SIZE
     );
     // Experiment: run monte-carlo
     for i in 0..NUM_BATCH_TESTS {
