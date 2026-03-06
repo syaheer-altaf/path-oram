@@ -3,14 +3,13 @@ use oram::path_oram::{
     DEFAULT_STASH_OVERFLOW_SIZE,
 };
 use oram::{
-    path_oram, Address, BlockSize, BlockValue, BucketSize, Oram, PathOram, RecursionCutoff,
+    Address, BlockSize, BlockValue, BucketSize, Oram, PathOram, RecursionCutoff,
     StashSize,
 };
 
 use rand::rngs::OsRng;
 use rand::RngCore;
 use std::collections::HashSet;
-
 
 /*
  * NOTE: The convention used in this crate is slightly different from the original Path ORAM;
@@ -23,9 +22,7 @@ const POSITIONS_PER_BLOCK: BlockSize = DEFAULT_POSITIONS_PER_BLOCK;
 const INITIAL_STASH_OVERFLOW_SIZE: StashSize = DEFAULT_STASH_OVERFLOW_SIZE;
 
 const BLOCK_SIZE: BlockSize = 64;
-const DB_SIZE: Address = 1024;
-const NUM_BATCH_TESTS: usize = 100;
-const BATCH_SIZE: usize = 8;
+const NUM_TESTS: usize = 100;
 
 fn random_distinct_indices(rng: &mut OsRng, count: usize, upper: Address) -> Vec<Address> {
     let mut seen = HashSet::with_capacity(count);
@@ -43,72 +40,77 @@ fn random_distinct_indices(rng: &mut OsRng, count: usize, upper: Address) -> Vec
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut rng = OsRng;
+    let db_size_list: Vec<u64> = vec![256, 512, 1024, 2048, 4096];
+    let batch_sizes: Vec<u64> = vec![2, 4, 8, 16, 32, 64];
 
-    // Create a random byte database matching BlockValue's expected shape
-    let mut database: Vec<[u8; BLOCK_SIZE]> = Vec::with_capacity(DB_SIZE as usize);
-    for _ in 0..(DB_SIZE as usize) {
-        let mut block = [0u8; BLOCK_SIZE];
-        rng.fill_bytes(&mut block);
-        database.push(block);
-    }
+    for db_size in db_size_list {
+        for batch_size in &batch_sizes {
+            // Create a random byte database matching BlockValue's expected shape
+            let mut database: Vec<[u8; BLOCK_SIZE]> = Vec::with_capacity(db_size as usize);
+            for _ in 0..(db_size) {
+                let mut block = [0u8; BLOCK_SIZE];
+                rng.fill_bytes(&mut block);
+                database.push(block);
+            }
 
-    // Initialize and populate (normal) path oram.
-    let mut oram =
+            // Initialize and populate (normal) path oram.
+            let mut oram =
         PathOram::<BlockValue<BLOCK_SIZE>, BUCKET_SIZE, POSITIONS_PER_BLOCK>::new_with_parameters(
-            DB_SIZE,
+            db_size,
             &mut rng,
             INITIAL_STASH_OVERFLOW_SIZE,
             RECURSION_CUTOFF,
+            1,
         )?;
-    for (i, bytes) in database.iter().enumerate() {
-        oram.write(i as Address, BlockValue::new(*bytes), &mut rng, false)?;
-    }
+            for (i, bytes) in database.iter().enumerate() {
+                oram.write(i as Address, BlockValue::new(*bytes), &mut rng, false)?;
+            }
 
-    // Initialize and populate batch path oram (initially using normal writes).
-    let mut batch_oram =
-        PathOram::<BlockValue<BLOCK_SIZE>, BUCKET_SIZE, POSITIONS_PER_BLOCK>::new_with_parameters(
-            DB_SIZE,
-            &mut rng,
-            INITIAL_STASH_OVERFLOW_SIZE,
-            RECURSION_CUTOFF,
-        )?;
-    for (i, bytes) in database.iter().enumerate() {
-        batch_oram.write(i as Address, BlockValue::new(*bytes), &mut rng, false)?;
-    }
+            // Initialize and populate batch path oram (initially using normal writes).
+            let mut batch_oram = PathOram::<
+                BlockValue<BLOCK_SIZE>,
+                BUCKET_SIZE,
+                POSITIONS_PER_BLOCK,
+            >::new_with_parameters(
+                db_size,
+                &mut rng,
+                INITIAL_STASH_OVERFLOW_SIZE,
+                RECURSION_CUTOFF,
+                *batch_size as usize,
+            )?;
+            for (i, bytes) in database.iter().enumerate() {
+                batch_oram.write(i as Address, BlockValue::new(*bytes), &mut rng, false)?;
+            }
 
-    println!("Initial ORAM population completed.\n\n");
-    println!(
-        "Starting experiment with the following parameters:\n
-    N = {} blocks, Block Size = {} bytes, Batch Size = {}\n\n",
-        DB_SIZE / 2, BLOCK_SIZE, BATCH_SIZE
-    );
-    // Experiment: run monte-carlo
-    for i in 0..NUM_BATCH_TESTS {
-        // Get random indices with the size of batch.
-        let indices = random_distinct_indices(&mut rng, BATCH_SIZE, DB_SIZE);
+            // Experiment: run monte-carlo
+            for _ in 0..NUM_TESTS {
+                // Get random indices with the size of batch.
+                let indices = random_distinct_indices(&mut rng, *batch_size as usize, db_size);
 
-        // 1) make single, sequential accesses the size of batch
-        let mut oram_reads: Vec<[u8; BLOCK_SIZE]> = vec![];
+                // 1) make single, sequential accesses the size of batch
+                let mut oram_reads: Vec<[u8; BLOCK_SIZE]> = vec![];
 
-        for i in indices.iter().copied() {
-            let read = oram.read(i as Address, &mut rng, true)?;
-            oram_reads.push(read.data);
+                for i in indices.iter().copied() {
+                    let read = oram.read(i as Address, &mut rng, true)?;
+                    oram_reads.push(read.data);
+                }
+
+                // 2) batched accesses to path oram
+                let batch_oram_reads: Vec<[u8; BLOCK_SIZE]> = (batch_oram
+                    .read_with_batch(indices, &mut rng, true)?)
+                .iter()
+                .map(|b| b.data)
+                .collect();
+
+                if oram_reads != batch_oram_reads {
+                    return Err(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("gg, mismatch!",),
+                    )));
+                }
+            }
         }
-
-        // 2) batched accesses to path oram
-        let batch_oram_reads: Vec<[u8; BLOCK_SIZE]> = (batch_oram
-            .read_with_batch(indices, &mut rng, true)?)
-        .iter()
-        .map(|b| b.data)
-        .collect();
-
-        if oram_reads != batch_oram_reads {
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("gg, mismatch!",),
-            )));
-        }
-        println!("Round {} passed", i);
+        println!("Experiment for N = {} is complete..", db_size / 2);
     }
 
     Ok(())

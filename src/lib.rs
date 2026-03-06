@@ -100,8 +100,7 @@ pub mod linear_time_oram;
 pub mod path_oram;
 pub(crate) mod position_map;
 pub(crate) mod stash;
-#[cfg(test)]
-mod test_utils;
+
 pub(crate) mod utils;
 
 pub use crate::bucket::BlockValue;

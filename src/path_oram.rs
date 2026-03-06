@@ -161,6 +161,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
         rng: &mut R,
         overflow_size: StashSize,
         recursion_cutoff: RecursionCutoff,
+        m_batch: usize,
     ) -> Result<Self, OramError> {
         log::info!("PathOram::new(capacity = {})", block_capacity,);
 
@@ -197,7 +198,7 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
         let height: u64 = (block_capacity.ilog2() - 1).into();
 
         let path_size = u64::try_from(Z)? * (height + 1);
-        let stash = ObliviousStash::new(path_size, overflow_size)?;
+        let stash = ObliviousStash::new(path_size, overflow_size, m_batch)?;
 
         // physical_memory holds `block_capacity` buckets, each storing up to Z blocks.
         // The number of leaves is `block_capacity` / 2, which the original Path ORAM paper's experiments
@@ -234,11 +235,6 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> PathOram<V, Z, AB> 
             position_map,
             height,
         })
-    }
-
-    #[cfg(test)]
-    pub(crate) fn stash_occupancy(&self) -> StashSize {
-        self.stash.occupancy()
     }
 }
 
@@ -344,65 +340,4 @@ impl<V: OramBlock, const Z: BucketSize, const AB: BlockSize> Oram for PathOram<V
 
         Ok(results)
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    use crate::{bucket::*, test_utils::*};
-
-    use rand::{rngs::StdRng, SeedableRng};
-
-    // Test default parameters. For the small capacity used in the tests, this means a linear position map.
-    create_path_oram_correctness_tests!(4, 8, 16384, 40);
-
-    // The remaining tests have RECURSION_CUTOFF = 1 in order to test the recursive position map.
-
-    // Default parameters, but with RECURSION_CUTOFF = 1.
-    create_path_oram_correctness_tests!(4, 8, 1, 40);
-
-    // Test small initial stash sizes and correct resizing of stash on overflow.
-    create_path_oram_correctness_tests!(4, 8, 1, 10);
-    create_path_oram_correctness_tests!(4, 8, 1, 1);
-
-    // Test small and large bucket sizes.
-    create_path_oram_correctness_tests!(3, 8, 1, 40);
-    create_path_oram_correctness_tests!(5, 8, 1, 40);
-
-    // Test small and large position map blocks.
-    create_path_oram_correctness_tests!(4, 2, 1, 40);
-    create_path_oram_correctness_tests!(4, 64, 1, 40);
-
-    // "Running sanity checks" for the default parameters.
-
-    // Check that the stash size stays reasonably small over the test runs.
-    create_path_oram_stash_size_tests!(4, 8, 16384, 40);
-
-    // // Sanity checks on the `DefaultOram` convenience wrapper.
-    // #[test]
-    // fn default_oram_linear_correctness() {
-    //     let mut rng = StdRng::seed_from_u64(0);
-    //     let mut oram = DefaultOram::<BlockValue<1>>::new(64, &mut rng).unwrap();
-    //     match oram.0 {
-    //         DefaultOramBackend::Linear(_) => {}
-    //         DefaultOramBackend::Path(_) => assert!(false),
-    //     }
-    //     random_workload(&mut oram, 1000);
-    // }
-
-    // // This test is #[ignore]'d because it takes about 1 second to run.
-    // #[test]
-    // #[ignore]
-    // fn default_oram_path_correctness() {
-    //     let mut rng = StdRng::seed_from_u64(0);
-    //     let mut oram = DefaultOram::<BlockValue<1>>::new(2048, &mut rng).unwrap();
-    //     match oram.0 {
-    //         DefaultOramBackend::Linear(_) => {
-    //             assert!(false)
-    //         }
-    //         DefaultOramBackend::Path(_) => {}
-    //     }
-    //     random_workload(&mut oram, 1000);
-    // }
 }

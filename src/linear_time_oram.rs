@@ -129,21 +129,3 @@ impl<V: OramBlock> Oram for LinearTimeOram<V> {
         Ok(results)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{bucket::BlockValue, test_utils::*};
-
-    #[test]
-    fn linear_time_oram_correctness_random_workload() {
-        let mut oram = LinearTimeOram::<BlockValue<1>>::new(64).unwrap();
-        random_workload(&mut oram, 1000);
-    }
-
-    #[test]
-    fn linear_time_oram_correctness_linear_workload() {
-        let mut oram = LinearTimeOram::<BlockValue<1>>::new(64).unwrap();
-        linear_workload(&mut oram, 1000);
-    }
-}

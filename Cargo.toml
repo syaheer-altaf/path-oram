@@ -24,11 +24,6 @@ paste = "1"
 static_assertions = "1"
 simplelog = "0.12"
 
-
-[[bench]]
-name = "benchmark"
-harness = false
-
 [[bin]]
 name = "linear-oram-test"
 path = "src/bin/examples/linear-oram-test.rs"

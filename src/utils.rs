@@ -13,12 +13,18 @@ use subtle::{Choice, ConditionallySelectable, ConstantTimeGreater, ConstantTimeL
 
 use std::fs::OpenOptions;
 use std::io::prelude::*;
+use std::fs;
 use std::io;
-
 use std::num::TryFromIntError;
 
 pub(crate) type TreeIndex = u64;
 pub(crate) type TreeHeight = u64;
+
+pub fn create_path_if_not_exists(path_str: &str) -> io::Result<()> {
+    let path = std::path::Path::new(path_str);
+    fs::create_dir_all(path)?;
+    Ok(())
+}
 
 pub fn append_to_file(file_path: &str, contents: &str) -> io::Result<()> {
     let mut file = OpenOptions::new()

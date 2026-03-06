@@ -94,6 +94,7 @@ impl<const AB: BlockSize, const Z: BucketSize> PositionMap<AB, Z> {
                 rng,
                 overflow_size,
                 recursion_cutoff,
+                1,
             )?)))
         }
     }

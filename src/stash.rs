@@ -9,7 +9,7 @@
 
 use crate::{
     bucket::{Bucket, PathOramBlock},
-    utils::{bitonic_sort_by_keys, CompleteBinaryTreeIndex, TreeIndex, append_to_file},
+    utils::{bitonic_sort_by_keys, CompleteBinaryTreeIndex, TreeIndex, create_path_if_not_exists, append_to_file},
     Address, BucketSize, OramBlock, OramError, StashSize,
 };
 
@@ -22,6 +22,7 @@ const STASH_GROWTH_INCREMENT: usize = 10;
 pub struct ObliviousStash<V: OramBlock> {
     blocks: Vec<PathOramBlock<V>>,
     path_size: StashSize,
+    m_batch: usize, // If single accesses are to be expected, let m_batch = 1.
 }
 
 impl<V: OramBlock> ObliviousStash<V> {
@@ -31,12 +32,13 @@ impl<V: OramBlock> ObliviousStash<V> {
 }
 
 impl<V: OramBlock> ObliviousStash<V> {
-    pub fn new(path_size: StashSize, overflow_size: StashSize) -> Result<Self, OramError> {
+    pub fn new(path_size: StashSize, overflow_size: StashSize, m_batch: usize) -> Result<Self, OramError> {
         let num_stash_blocks: usize = (path_size + overflow_size).try_into()?;
 
         Ok(Self {
             blocks: vec![PathOramBlock::<V>::dummy(); num_stash_blocks],
             path_size,
+            m_batch,
         })
     }
 
@@ -155,7 +157,6 @@ impl<V: OramBlock> ObliviousStash<V> {
         bitonic_sort_by_keys(&mut self.blocks, &mut level_assignments);
 
         // Write the first Z * height blocks into slots in the tree
-        let mut path_size = 0;
         for depth in 0..=height {
             let bucket_to_write =
                 &mut physical_memory[usize::try_from(position.ct_node_on_path(depth, height))?];
@@ -164,19 +165,13 @@ impl<V: OramBlock> ObliviousStash<V> {
 
                 bucket_to_write.blocks[slot_number] = self.blocks[stash_index];
             }
-            path_size += bucket_to_write.blocks.len();
         }
 
         if is_log {
-            // let mut result = 0;
-            // for i in self.path_size.try_into().unwrap()..(self.blocks.len()) {
-            //     if !self.blocks[i].is_dummy() {
-            //         result += 1;
-            //     }
-            // }
-            // println!("\n\nwrite bandwidth:{}\n", path_size);
-            let _ = append_to_file("./exp-results/bandwidth_single.log", path_size.to_string().as_str());
-            let _ = append_to_file("./exp-results/stash_single.log", self.occupancy().to_string().as_str());
+            // Bandwidth is fixed and easy to compute for this case;
+            // do not log stash for single accesses for now.
+            // let _ = append_to_file("./exp-results/bandwidth_single.log", self.path_size.to_string().as_str());
+            // let _ = append_to_file("./exp-results/stash_single.log", self.occupancy().to_string().as_str());
         }
         Ok(())
     }
@@ -254,9 +249,11 @@ impl<V: OramBlock> ObliviousStash<V> {
         }
 
         if is_log {
+            // Bandwidth is fixed and easy to compute for this case;
+            // do not log stash for single accesses for now.
             // println!("\n\nread bandwidth:{}\n", self.path_size);
-            let _ = append_to_file("./exp-results/bandwidth_single.log", self.path_size.to_string().as_str());
-            let _ = append_to_file("./exp-results/stash_single.log", self.occupancy().to_string().as_str());
+            // let _ = append_to_file("./exp-results/bandwidth_single.log", self.path_size.to_string().as_str());
+            // let _ = append_to_file("./exp-results/stash_single.log", self.occupancy().to_string().as_str());
         }
         Ok(())
     }
@@ -321,9 +318,14 @@ impl<V: OramBlock> ObliviousStash<V> {
         }
 
         if is_log {
-            // println!("\n\nread bandwidth:{}\n", union_block_count);
-            let _ = append_to_file("./exp-results/bandwidth_batch.log", union_block_count.to_string().as_str());
-            let _ = append_to_file("./exp-results/stash_batch.log", self.occupancy().to_string().as_str());
+            let height = positions[0].ct_depth(); // Use the first position to get the height of the tree
+            let n_size = 2_usize.pow(u32::try_from(height)?);
+            let log_path_name = format!("./exp-results/results/N_{}/{}", n_size, self.m_batch);
+            let bandwidth_log_filename = format!("{}/{}", log_path_name, "bandwidth_batch.log");
+            let stash_log_filename = format!("{}/{}", log_path_name, "stash_batch.log");
+            let _ = create_path_if_not_exists(&log_path_name);
+            let _ = append_to_file(&bandwidth_log_filename, union_block_count.to_string().as_str());
+            let _ = append_to_file(&stash_log_filename, self.occupancy().to_string().as_str());
         }
 
         Ok(paths_union)
@@ -340,10 +342,14 @@ impl<V: OramBlock> ObliviousStash<V> {
 
         if union_buckets.is_empty() {
             if is_log {
-                // println!("\n\nwrite bandwidth:0\n");
-                // println!("current stash occupancy:{}\n", self.occupancy());
-                let _ = append_to_file("./exp-results/bandwidth_batch.log","0");
-                let _ = append_to_file("./exp-results/stash_batch.log", self.occupancy().to_string().as_str());
+                let height = union_buckets[0].ct_depth(); // Use the first position to get the height of the tree
+                let n_size = 2_usize.pow(u32::try_from(height)?);
+                let log_path_name = format!("./exp-results/results/N_{}/{}", n_size, self.m_batch);
+                let bandwidth_log_filename = format!("{}/{}", log_path_name, "bandwidth_batch.log");
+                let stash_log_filename = format!("{}/{}", log_path_name, "stash_batch.log");
+                let _ = create_path_if_not_exists(&log_path_name);
+                let _ = append_to_file(&bandwidth_log_filename, "0");
+                let _ = append_to_file(&stash_log_filename, self.occupancy().to_string().as_str());
             }
             return Ok(());
         }
@@ -497,10 +503,14 @@ impl<V: OramBlock> ObliviousStash<V> {
         }
 
         if is_log {
-            // println!("\n\nwrite bandwidth:{}\n", write_bandwidth);
-            // println!("current stash occupancy:{}\n", self.occupancy());
-            let _ = append_to_file("./exp-results/bandwidth_batch.log",write_bandwidth.to_string().as_str());
-            let _ = append_to_file("./exp-results/stash_batch.log", self.occupancy().to_string().as_str());
+            let height = union_buckets[0].ct_depth(); // Use the first position to get the height of the tree
+            let n_size = 2_usize.pow(u32::try_from(height)?);
+            let log_path_name = format!("./exp-results/results/N_{}/{}", n_size, self.m_batch);
+            let bandwidth_log_filename = format!("{}/{}", log_path_name, "bandwidth_batch.log");
+            let stash_log_filename = format!("{}/{}", log_path_name, "stash_batch.log");
+            let _ = create_path_if_not_exists(&log_path_name);
+            let _ = append_to_file(&bandwidth_log_filename, write_bandwidth.to_string().as_str());
+            let _ = append_to_file(&stash_log_filename, self.occupancy().to_string().as_str());
         }
 
         Ok(())
