@@ -1,5 +1,17 @@
-## path oram
+# Path ORAM
 
-This library implements an Oblivious RAM (ORAM) for secure enclave applications.
+An implementation of Path ORAM forked from [Meta's repo](https://github.com/facebook/oram) in which I repurposed for my Masters thesis project.
 
-**Note:** Originally forked from [Meta's repository](https://github.com/facebook/oram).
+Run the following to execute the experiment:
+
+### 1. Execute file located at "./src/bin/oram-exp.rs" with
+
+```
+cargo run --bin experiment
+```
+
+### 2. After execution, run python script with
+
+```
+python3 exp-results/python-scripts/main.py
+```
