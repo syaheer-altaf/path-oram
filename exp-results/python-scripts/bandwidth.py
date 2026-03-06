@@ -15,30 +15,23 @@ def expected_bandwidth_for_m_batches(m, Z, num_leaves):
         expectation += term
     
     return (2 * Z * expectation)
-if __name__ == "__main__":
-    NUM_BATCH_TEST = 100
-    ###############################################################
-    # Compute (total) bandwidth for single accesses from log file #
-    ###############################################################
 
-    bandwidth_single_file = '../bandwidth_single.log'
-    arr_bandwidth_single = np.array(u.read_integers_from_file(bandwidth_single_file))
+def return_bandwidths(Z, N, batch, b_batch_file):
+    '''
+    Returns total single bandwidths, mean batched bandwidths, theoretical mean batched bandwidths,
+    and savings.
+    '''
+    ################################################
+    # Compute (total) bandwidth for single accesses
+    ################################################
 
-    if len(arr_bandwidth_single) % 2 != 0:
-        sys.exit("Something went wrong. The size of the array is not even.")
-
-    # Bandwidth read and write are fixed and equal for single accesses.
-    # So we sum and divide by NUM_BATCH_TEST.
-    total_single_bandwidth = np.sum(arr_bandwidth_single) / NUM_BATCH_TEST
-    print("=" * 50)
-    print(f"Total bandwidth for single accesses: {total_single_bandwidth}")
-    print("=" * 50)
+    total_single_bandwidth = (math.log2(N) + 1) * Z * batch
 
     ################################################################
     # Compute (total) bandwidth for batched accesses from log file #
     ################################################################
 
-    bandwidth_batch_file = '../bandwidth_batch.log'
+    bandwidth_batch_file = b_batch_file
     arr_bandwidth_batch = np.array(u.read_integers_from_file(bandwidth_batch_file))
     
     if len(arr_bandwidth_batch) % 2 != 0:
@@ -52,8 +45,6 @@ if __name__ == "__main__":
 
     bandwidth_arr = np.array(temp_list)
 
-    print("=" * 50)
-    print(f"Total Bandwidth (Mean): {np.mean(bandwidth_arr)}")
-    print(f"Total Bandwidth (std deviation): {np.std(bandwidth_arr)}")
-    print(f"\nTheoretical Total Bandwidth (Mean): {expected_bandwidth_for_m_batches(8, 4, 512)}")
-    print("=" * 50)
+    savings = 100 * (total_single_bandwidth - np.mean(bandwidth_arr)) / total_single_bandwidth
+
+    return total_single_bandwidth, np.mean(bandwidth_arr), expected_bandwidth_for_m_batches(batch, Z, N), savings
