@@ -10,8 +10,8 @@ import pandas as pd
 
 if __name__ == "__main__":
     dirs = [item for item in Path('./exp-results/results').iterdir() if item.is_dir()]
-    exp_dirs = [item for item in dirs if re.match(r'N', item.as_posix()) != None]
-
+    exp_dirs = [item for item in dirs if re.match(r'exp-results/results/N', item.as_posix()) != None]
+    print(exp_dirs)
     _Z = 4
 
     N_list = list()
@@ -21,17 +21,17 @@ if __name__ == "__main__":
     batched_max_stash = defaultdict(list)
 
     for _dir in exp_dirs:
-        _N = int(_dir.as_posix().replace("N_", ""))
+        _N = int(_dir.as_posix().replace("exp-results/results/N_", ""))
         N_list.append(_N)
         batch_dirs = [item for item in _dir.iterdir() if item.is_dir()]
         
         batched_bandwidths[_N] = []
 
         for _batch in batch_dirs:
-            batch = int(_batch.as_posix().replace(f"N_{_N}/", ""))
+            batch = int(_batch.as_posix().replace(f"exp-results/results/N_{_N}/", ""))
 
             sb, bb, tbb, savings = b.return_bandwidths(_Z, _N, batch, f'./{_batch.as_posix()}/bandwidth_batch.log')
-            ss, bs = s.return_stash(f'./{_batch.as_posix()}/stash_batch.log')
+            bs = s.return_stash(f'./{_batch.as_posix()}/stash_batch.log')
             
             batched_bandwidths[_N].append({
                 "m" : batch,

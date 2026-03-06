@@ -25,7 +25,7 @@ def return_bandwidths(Z, N, batch, b_batch_file):
     # Compute (total) bandwidth for single accesses
     ################################################
 
-    total_single_bandwidth = (math.log2(N) + 1) * Z * batch
+    total_single_bandwidth = 2 * (math.log2(N) + 1) * Z * batch
 
     ################################################################
     # Compute (total) bandwidth for batched accesses from log file #
