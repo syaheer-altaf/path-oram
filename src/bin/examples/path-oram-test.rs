@@ -70,6 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &mut rng,
             INITIAL_STASH_OVERFLOW_SIZE,
             RECURSION_CUTOFF,
+            1
         )?;
 
     // Populate oram
