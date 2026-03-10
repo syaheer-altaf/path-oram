@@ -222,16 +222,6 @@ impl<V: OramBlock> ObliviousStash<V> {
         Ok(result)
     }
 
-    pub fn occupancy(&self) -> StashSize {
-        let mut result = 0;
-        for i in self.path_size.try_into().unwrap()..(self.blocks.len()) {
-            if !self.blocks[i].is_dummy() {
-                result += 1;
-            }
-        }
-        result
-    }
-
     pub fn read_from_path<const Z: crate::BucketSize>(
         &mut self,
         physical_memory: &mut [Bucket<V, Z>],
@@ -325,7 +315,7 @@ impl<V: OramBlock> ObliviousStash<V> {
             let stash_log_filename = format!("{}/{}", log_path_name, "stash_batch.log");
             let _ = create_path_if_not_exists(&log_path_name);
             let _ = append_to_file(&bandwidth_log_filename, union_block_count.to_string().as_str());
-            let _ = append_to_file(&stash_log_filename, self.occupancy().to_string().as_str());
+            let _ = append_to_file(&stash_log_filename, self.stash_occupancy().to_string().as_str());
         }
 
         Ok(paths_union)
@@ -349,7 +339,7 @@ impl<V: OramBlock> ObliviousStash<V> {
                 let stash_log_filename = format!("{}/{}", log_path_name, "stash_batch.log");
                 let _ = create_path_if_not_exists(&log_path_name);
                 let _ = append_to_file(&bandwidth_log_filename, "0");
-                let _ = append_to_file(&stash_log_filename, self.occupancy().to_string().as_str());
+                let _ = append_to_file(&stash_log_filename, self.stash_occupancy().to_string().as_str());
             }
             return Ok(());
         }
@@ -510,7 +500,7 @@ impl<V: OramBlock> ObliviousStash<V> {
             let stash_log_filename = format!("{}/{}", log_path_name, "stash_batch.log");
             let _ = create_path_if_not_exists(&log_path_name);
             let _ = append_to_file(&bandwidth_log_filename, write_bandwidth.to_string().as_str());
-            let _ = append_to_file(&stash_log_filename, self.occupancy().to_string().as_str());
+            let _ = append_to_file(&stash_log_filename, self.stash_occupancy().to_string().as_str());
         }
 
         Ok(())
@@ -640,5 +630,26 @@ impl<V: OramBlock> ObliviousStash<V> {
         }
 
         Ok(results)
+    }
+
+    // Utilities for stash
+    // pub fn occupancy(&self) -> StashSize {
+    //     let mut result = 0;
+    //     for i in self.path_size.try_into().unwrap()..(self.blocks.len()) {
+    //         if !self.blocks[i].is_dummy() {
+    //             result += 1;
+    //         }
+    //     }
+    //     result
+    // }
+
+    pub fn stash_occupancy(&self) -> StashSize {
+        let mut result = 0;
+        for i in 0..(self.blocks.len()) {
+            if !self.blocks[i].is_dummy() {
+                result += 1;
+            }
+        }
+        result
     }
 }

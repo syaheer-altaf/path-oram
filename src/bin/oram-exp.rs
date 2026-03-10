@@ -24,6 +24,20 @@ const INITIAL_STASH_OVERFLOW_SIZE: StashSize = DEFAULT_STASH_OVERFLOW_SIZE;
 const BLOCK_SIZE: BlockSize = 64;
 const NUM_TESTS: usize = 100;
 
+fn delete_dir_if_exists(dir_path_str: &str) -> std::io::Result<()> {
+    let path = std::path::Path::new(dir_path_str);
+
+    if path.exists() && path.is_dir() {
+        // Attempt to remove the directory and all its contents
+        std::fs::remove_dir_all(path)?;
+        println!("Directory removed: {}", dir_path_str);
+    } else {
+        println!("Directory not found or is a file: {}", dir_path_str);
+    }
+
+    Ok(())
+}
+
 fn random_distinct_indices(rng: &mut OsRng, count: usize, upper: Address) -> Vec<Address> {
     let mut seen = HashSet::with_capacity(count);
     let mut indices = Vec::with_capacity(count);
@@ -41,9 +55,15 @@ fn random_distinct_indices(rng: &mut OsRng, count: usize, upper: Address) -> Vec
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut rng = OsRng;
     let db_size_list: Vec<u64> = vec![256, 512, 1024, 2048, 4096];
-    let batch_sizes: Vec<u64> = vec![2, 4, 8, 16, 32, 64];
+    let batch_sizes: Vec<u64> = vec![1, 2, 4, 8, 16];
+
+    // delete old experiment results (if any)
+
+    let _ = delete_dir_if_exists("./exp-results/results");
 
     for db_size in db_size_list {
+        println!("Experiment for N = {} is in process..", db_size / 2);
+
         for batch_size in &batch_sizes {
             // Create a random byte database matching BlockValue's expected shape
             let mut database: Vec<[u8; BLOCK_SIZE]> = Vec::with_capacity(db_size as usize);
@@ -110,7 +130,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        println!("Experiment for N = {} is complete..", db_size / 2);
+        println!("Experiment for N = {} has completed.", db_size / 2);
     }
 
     Ok(())
