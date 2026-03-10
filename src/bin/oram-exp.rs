@@ -22,7 +22,7 @@ const POSITIONS_PER_BLOCK: BlockSize = DEFAULT_POSITIONS_PER_BLOCK;
 const INITIAL_STASH_OVERFLOW_SIZE: StashSize = DEFAULT_STASH_OVERFLOW_SIZE;
 
 const BLOCK_SIZE: BlockSize = 64;
-const NUM_TESTS: usize = 100;
+const NUM_TESTS: usize = 500;
 
 fn delete_dir_if_exists(dir_path_str: &str) -> std::io::Result<()> {
     let path = std::path::Path::new(dir_path_str);
@@ -55,7 +55,8 @@ fn random_distinct_indices(rng: &mut OsRng, count: usize, upper: Address) -> Vec
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut rng = OsRng;
     let db_size_list: Vec<u64> = vec![256, 512, 1024, 2048, 4096];
-    let batch_sizes: Vec<u64> = vec![1, 2, 4, 8, 16];
+    // m = 1 is equivalent to path oram with a single access
+    let batch_sizes: Vec<u64> = vec![1, 2];
 
     // delete old experiment results (if any)
 
@@ -65,6 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Experiment for N = {} is in process..", db_size / 2);
 
         for batch_size in &batch_sizes {
+            println!("\t* Working with m = {}..", &batch_size);
             // Create a random byte database matching BlockValue's expected shape
             let mut database: Vec<[u8; BLOCK_SIZE]> = Vec::with_capacity(db_size as usize);
             for _ in 0..(db_size) {

@@ -312,10 +312,10 @@ impl<V: OramBlock> ObliviousStash<V> {
             let n_size = 2_usize.pow(u32::try_from(height)?);
             let log_path_name = format!("./exp-results/results/N_{}/{}", n_size, self.m_batch);
             let bandwidth_log_filename = format!("{}/{}", log_path_name, "bandwidth_batch.log");
-            let stash_log_filename = format!("{}/{}", log_path_name, "stash_batch.log");
+            // let stash_log_filename = format!("{}/{}", log_path_name, "stash_batch.log");
             let _ = create_path_if_not_exists(&log_path_name);
             let _ = append_to_file(&bandwidth_log_filename, union_block_count.to_string().as_str());
-            let _ = append_to_file(&stash_log_filename, self.occupancy().to_string().as_str());
+            // let _ = append_to_file(&stash_log_filename, self.occupancy().to_string().as_str());
         }
 
         Ok(paths_union)

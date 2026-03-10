@@ -18,7 +18,7 @@ if __name__ == "__main__":
 
     batched_bandwidths = dict()
     # single_max_stash = defaultdict(list)
-    batched_max_stash = defaultdict(list)
+    batched_stash = defaultdict(list)
 
     for _dir in exp_dirs:
         _N = int(_dir.as_posix().replace("exp-results/results/N_", ""))
@@ -41,7 +41,7 @@ if __name__ == "__main__":
                 "savings (%)": savings
             })
             # single_max_stash[batch].append((_N, ss))
-            batched_max_stash[batch].append((_N, bs))
+            batched_stash[batch].append((_N, bs))
 
     pd.set_option('display.max_columns', None)
 
@@ -57,7 +57,7 @@ if __name__ == "__main__":
     # try plotting stash for batched accesses
     plt.figure(figsize=(8, 5))
 
-    for label, pairs in sorted(batched_max_stash.items()):
+    for label, pairs in sorted(batched_stash.items()):
         # sort by x so the line is drawn in the correct order
         pairs = sorted(pairs, key=lambda p: p[0])
         x = [p[0] for p in pairs]
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     plt.xscale('log', base=2)
     plt.xlabel('x')
     plt.ylabel('y')
-    plt.title(f'Max Stash Growth for m-Batched Accesses, Z = {_Z}')
+    plt.title(f'Mean Stash Growth for m-Batched Accesses, Z = {_Z}')
     plt.legend()
     plt.grid(True, which='both', linestyle='--', alpha=0.5)
     plt.tight_layout()
