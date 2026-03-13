@@ -22,7 +22,7 @@ const POSITIONS_PER_BLOCK: BlockSize = DEFAULT_POSITIONS_PER_BLOCK;
 const INITIAL_STASH_OVERFLOW_SIZE: StashSize = DEFAULT_STASH_OVERFLOW_SIZE;
 
 const BLOCK_SIZE: BlockSize = 64;
-const NUM_TESTS: usize = 500;
+const NUM_TESTS: usize = 1000;
 
 fn delete_dir_if_exists(dir_path_str: &str) -> std::io::Result<()> {
     let path = std::path::Path::new(dir_path_str);
@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut rng = OsRng;
     let db_size_list: Vec<u64> = vec![256, 512, 1024, 2048, 4096];
     // m = 1 is equivalent to path oram with a single access
-    let batch_sizes: Vec<u64> = vec![1, 2];
+    let batch_sizes: Vec<u64> = vec![1, 2, 4, 8, 16, 32];
 
     // delete old experiment results (if any)
 
