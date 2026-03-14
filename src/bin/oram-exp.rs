@@ -22,7 +22,7 @@ const POSITIONS_PER_BLOCK: BlockSize = DEFAULT_POSITIONS_PER_BLOCK;
 const INITIAL_STASH_OVERFLOW_SIZE: StashSize = DEFAULT_STASH_OVERFLOW_SIZE;
 
 const BLOCK_SIZE: BlockSize = 64;
-const NUM_TESTS: usize = 1000;
+const NUM_TESTS: usize = 10_000;
 
 fn delete_dir_if_exists(dir_path_str: &str) -> std::io::Result<()> {
     let path = std::path::Path::new(dir_path_str);
