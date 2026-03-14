@@ -9,7 +9,10 @@
 
 use crate::{
     bucket::{Bucket, PathOramBlock},
-    utils::{bitonic_sort_by_keys, CompleteBinaryTreeIndex, TreeIndex, create_path_if_not_exists, append_to_file},
+    utils::{
+        append_to_file, bitonic_sort_by_keys, create_path_if_not_exists, CompleteBinaryTreeIndex,
+        TreeIndex,
+    },
     Address, BucketSize, OramBlock, OramError, StashSize,
 };
 
@@ -32,7 +35,11 @@ impl<V: OramBlock> ObliviousStash<V> {
 }
 
 impl<V: OramBlock> ObliviousStash<V> {
-    pub fn new(path_size: StashSize, overflow_size: StashSize, m_batch: usize) -> Result<Self, OramError> {
+    pub fn new(
+        path_size: StashSize,
+        overflow_size: StashSize,
+        m_batch: usize,
+    ) -> Result<Self, OramError> {
         let num_stash_blocks: usize = (path_size + overflow_size).try_into()?;
 
         Ok(Self {
@@ -249,8 +256,8 @@ impl<V: OramBlock> ObliviousStash<V> {
     }
 
     /*
-        TODO: REVISE `read_from_path_union`, `write_to_path_union`, `batched_access`
-     */
+       TODO: REVISE `read_from_path_union`, `write_to_path_union`, `batched_access`
+    */
     // The following methods are used alongside `batched_access`.
     pub fn read_from_path_union<const Z: crate::BucketSize>(
         &mut self,
@@ -312,10 +319,13 @@ impl<V: OramBlock> ObliviousStash<V> {
             let n_size = 2_usize.pow(u32::try_from(height)?);
             let log_path_name = format!("./exp-results/results/N_{}/{}", n_size, self.m_batch);
             let bandwidth_log_filename = format!("{}/{}", log_path_name, "bandwidth_batch.log");
-            // let stash_log_filename = format!("{}/{}", log_path_name, "stash_batch.log");
+            let stash_log_filename = format!("{}/{}", log_path_name, "stash_batch.log");
             let _ = create_path_if_not_exists(&log_path_name);
-            let _ = append_to_file(&bandwidth_log_filename, union_block_count.to_string().as_str());
-            // let _ = append_to_file(&stash_log_filename, self.occupancy().to_string().as_str());
+            let _ = append_to_file(
+                &bandwidth_log_filename,
+                union_block_count.to_string().as_str(),
+            );
+            let _ = append_to_file(&stash_log_filename, self.occupancy().to_string().as_str());
         }
 
         Ok(paths_union)
@@ -331,16 +341,6 @@ impl<V: OramBlock> ObliviousStash<V> {
         use subtle::Choice;
 
         if union_buckets.is_empty() {
-            if is_log {
-                let height = union_buckets[0].ct_depth(); // Use the first position to get the height of the tree
-                let n_size = 2_usize.pow(u32::try_from(height)?);
-                let log_path_name = format!("./exp-results/results/N_{}/{}", n_size, self.m_batch);
-                let bandwidth_log_filename = format!("{}/{}", log_path_name, "bandwidth_batch.log");
-                let stash_log_filename = format!("{}/{}", log_path_name, "stash_batch.log");
-                let _ = create_path_if_not_exists(&log_path_name);
-                let _ = append_to_file(&bandwidth_log_filename, "0");
-                let _ = append_to_file(&stash_log_filename, self.occupancy().to_string().as_str());
-            }
             return Ok(());
         }
 
@@ -488,9 +488,29 @@ impl<V: OramBlock> ObliviousStash<V> {
         // prefix of the stash. If we leave those blocks in-place, later accesses may not
         // overwrite all of them, leaving stale duplicates in stash.
         let written_block_count = ordered_union_buckets.len() * Z;
-        for i in 0..written_block_count {
-            self.blocks[i] = PathOramBlock::<V>::dummy();
-        }
+        let fixed_path_block_count = usize::try_from(self.path_size)?;
+
+        // After sorting, layout is:
+        //   [written-back assigned blocks][real overflow blocks][dummy blocks]
+        //
+        // We must preserve the library invariant that self.blocks always begins with
+        // a fixed scratch prefix of length self.path_size, followed by overflow stash
+        // blocks, followed by one reserved trailing dummy block.
+        let overflow_blocks: Vec<PathOramBlock<V>> = self.blocks[written_block_count..]
+            .iter()
+            .copied()
+            .filter(|block| !bool::from(block.ct_is_dummy()))
+            .collect();
+
+        let mut rebuilt_blocks = vec![PathOramBlock::<V>::dummy(); fixed_path_block_count];
+
+        rebuilt_blocks.extend(overflow_blocks);
+
+        // Preserve the library convention: one trailing dummy block reserved for
+        // writes to previously uninitialized addresses.
+        rebuilt_blocks.push(PathOramBlock::<V>::dummy());
+
+        self.blocks = rebuilt_blocks;
 
         if is_log {
             let height = union_buckets[0].ct_depth(); // Use the first position to get the height of the tree
@@ -499,9 +519,20 @@ impl<V: OramBlock> ObliviousStash<V> {
             let bandwidth_log_filename = format!("{}/{}", log_path_name, "bandwidth_batch.log");
             let stash_log_filename = format!("{}/{}", log_path_name, "stash_batch.log");
             let _ = create_path_if_not_exists(&log_path_name);
-            let _ = append_to_file(&bandwidth_log_filename, write_bandwidth.to_string().as_str());
+            let _ = append_to_file(
+                &bandwidth_log_filename,
+                write_bandwidth.to_string().as_str(),
+            );
             let _ = append_to_file(&stash_log_filename, self.occupancy().to_string().as_str());
         }
+
+        // Check stash size and make sure it does not blow up.
+        // println!(
+        //     "stash_len={}, occupancy={}, union_slots={}",
+        //     self.blocks.len(),
+        //     self.occupancy(),
+        //     ordered_union_buckets.len() * Z
+        // );
 
         Ok(())
     }

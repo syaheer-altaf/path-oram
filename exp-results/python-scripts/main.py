@@ -68,7 +68,7 @@ if __name__ == "__main__":
     plt.xscale('log', base=2)
     plt.xlabel('x')
     plt.ylabel('y')
-    plt.title(f'Mean Stash Growth for m-Batched Accesses, Z = {_Z}')
+    plt.title(f'Max Stash Growth for m-Batched Accesses, Z = {_Z}')
     plt.legend()
     plt.grid(True, which='both', linestyle='--', alpha=0.5)
     plt.tight_layout()
