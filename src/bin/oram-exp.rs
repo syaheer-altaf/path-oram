@@ -21,7 +21,8 @@ const POSITIONS_PER_BLOCK: BlockSize = DEFAULT_POSITIONS_PER_BLOCK;
 const INITIAL_STASH_OVERFLOW_SIZE: StashSize = DEFAULT_STASH_OVERFLOW_SIZE;
 
 const BLOCK_SIZE: BlockSize = 64;
-const NUM_TESTS: usize = 1_000_000_000;
+const RAND_NUM_TESTS: usize = 1_00_000;                  // number of tests for random accesses to a batch of indices.
+const DET_NUM_TESTS: usize = RAND_NUM_TESTS * 10;        // number of tests for deterministic (worst-case) accesses to a batch of indices.
 
 fn delete_dir_if_exists(dir_path_str: &str) -> std::io::Result<()> {
     let path = std::path::Path::new(dir_path_str);
@@ -63,7 +64,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Collect all arguments into a Vector of Strings
     let args: Vec<String> = std::env::args().collect();
 
-    if args.len() != 2 {
+    if args.len() < 2 {
+        println!("Database size(s) for the experiment are not specified.");
+        println!("E.g.: `./experiment 512 1024 2048`");
         return Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
             format!("Please specify the database size in the argument before running the experiment.",),
@@ -71,9 +74,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let mut rng = OsRng;
     let mut db_size_list: Vec<u64> = vec![];
-    db_size_list.push(args[1].parse()?);
+
+    for i in 1..args.len() {
+        db_size_list.push(args[i].parse()?);
+    }
     // m = 1 is equivalent to path oram with a single access
-    let batch_sizes: Vec<u64> = vec![1, 2, 4, 8, 16, 32, 64];
+    let batch_sizes: Vec<u64> = vec![1, 2, 4, 8, 16, 32];
 
     // delete old experiment results (if any)
 
@@ -109,7 +115,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // Warm-up phase
-            for _ in 0..NUM_TESTS {
+            for _ in 0..RAND_NUM_TESTS {
                 // Get random indices with the size of batch.
                 let indices = random_distinct_indices(&mut rng, *batch_size as usize, db_size);
 
@@ -118,7 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     batch_oram.read_with_batch(indices, &mut rng, false)?;
             }
             // Measurement phase, {0,1,2,..,N,0,1,...} in batches.
-            for i in 0..NUM_TESTS {
+            for i in 0..DET_NUM_TESTS {
                 let mut indices: Vec<Address> = vec![];
 
                 // Collect indices deterministically
@@ -128,8 +134,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     indices.push(idx);
                 }
 
-                let _: Vec<BlockValue<BLOCK_SIZE>> =
-                    batch_oram.read_with_batch(indices, &mut rng, true)?;
+                let _: Vec<BlockValue<BLOCK_SIZE>> = batch_oram.read_with_batch(indices, &mut rng, true)?;
             }
         }
         println!("Experiment for N = {} has completed.", db_size / 2);
