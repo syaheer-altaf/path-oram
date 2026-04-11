@@ -474,10 +474,11 @@ impl<V: OramBlock> ObliviousStash<V> {
                     TreeIndex::MAX,
                 );
 
-                log::warn!(
-                    "Stash overflow occurred during union writeback. Stash resized to {} blocks.",
-                    self.blocks.len()
-                );
+                // log::warn!(
+                //     "Stash overflow occurred during union writeback. Stash resized to {} blocks.",
+                //     self.blocks.len()
+                // );
+                println!("Stash overflow occurred during union writeback. Stash resized to {} blocks.", self.blocks.len());
             }
         }
 
