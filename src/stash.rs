@@ -337,7 +337,7 @@ impl<V: OramBlock> ObliviousStash<V> {
         union_buckets: &[TreeIndex],
         is_log: bool,
     ) -> Result<(), OramError> {
-        use std::collections::HashSet;
+        use std::collections::{HashMap, HashSet}; // +HashMap
         use subtle::Choice;
 
         if union_buckets.is_empty() {
@@ -375,42 +375,53 @@ impl<V: OramBlock> ObliviousStash<V> {
             .unwrap_or(0);
         let an_arbitrary_leaf: TreeIndex = 1u64 << max_depth;
 
+        // Precompute reverse index: bucket_index -> slot in ordered_union_buckets.
+        // This reduces real-block assignment from O(union_size) per block to O(tree_depth)
+        // per block: instead of scanning all union buckets, we walk the block's path from
+        // leaf to root and do a O(1) HashMap lookup at each ancestor level.
+        // This is safe because this lookup does not affect the set of physical memory
+        // addresses accessed — the ORAM access pattern is already fixed by ordered_union_buckets.
+        let bucket_index_to_slot: HashMap<TreeIndex, usize> = ordered_union_buckets
+            .iter()
+            .enumerate()
+            .map(|(slot, &idx)| (idx, slot))
+            .collect();
+
         // Assign all non-dummy blocks either to some bucket in the union or to overflow.
         for (i, block) in self.blocks.iter().enumerate() {
             let block_is_dummy = block.ct_is_dummy();
             let block_position =
                 TreeIndex::conditional_select(&block.position, &an_arbitrary_leaf, block_is_dummy);
 
-            let mut assigned: Choice = 0.into();
+            // Dummy blocks are handled in the fill pass below; skip them here.
+            if bool::from(block_is_dummy) {
+                continue;
+            }
 
-            // Scan candidate union buckets from deepest to shallowest.
-            for (bucket_slot, count) in bucket_counts.iter_mut().enumerate() {
-                let bucket_index = ordered_union_buckets[bucket_slot];
-                let bucket_depth = bucket_index.ct_depth();
+            let block_depth = block_position.ct_depth();
+            let mut assigned = false;
 
-                let bucket_full: Choice = count.ct_eq(&(u64::try_from(Z)?));
+            // Walk the block's path from leaf toward root (deepest-to-shallowest),
+            // consistent with the ordering of ordered_union_buckets so the deepest
+            // eligible bucket is always preferred. O(depth) vs the prior O(union_size).
+            for d in (0..=block_depth).rev() {
+                let ancestor = block_position.ct_node_on_path(d, block_depth);
 
-                // A block can be placed in bucket_index iff bucket_index lies on the
-                // path from the root to block_position.
-                let bucket_on_block_path = block_position
-                    .ct_node_on_path(bucket_depth, block_position.ct_depth())
-                    .ct_eq(&bucket_index);
-
-                let should_assign =
-                    bucket_on_block_path & (!bucket_full) & (!block_is_dummy) & (!assigned);
-                assigned |= should_assign;
-
-                let incremented = *count + 1;
-                count.conditional_assign(&incremented, should_assign);
-
-                bucket_assignments[i]
-                    .conditional_assign(&(u64::try_from(bucket_slot)?), should_assign);
+                if let Some(&slot) = bucket_index_to_slot.get(&ancestor) {
+                    if bucket_counts[slot] < u64::try_from(Z)? {
+                        bucket_assignments[i] = u64::try_from(slot)?;
+                        bucket_counts[slot] += 1;
+                        assigned = true;
+                        break;
+                    }
+                }
             }
 
             // If this real block could not be placed into any bucket in the union,
             // it remains in stash overflow.
-            bucket_assignments[i]
-                .conditional_assign(&(TreeIndex::MAX - 1), (!assigned) & (!block_is_dummy));
+            if !assigned {
+                bucket_assignments[i] = TreeIndex::MAX - 1;
+            }
         }
 
         // Fill all remaining non-full buckets in the union with dummy blocks.
