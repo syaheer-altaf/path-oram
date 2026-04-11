@@ -9,7 +9,6 @@ use oram::{
 use rand::rngs::OsRng;
 use rand::RngCore;
 use std::collections::HashSet;
-use std::path::Path;
 
 /*
  * NOTE: The convention used in this crate is slightly different from the original Path ORAM;
