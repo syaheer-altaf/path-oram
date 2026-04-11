@@ -1,8 +1,6 @@
 use oram::{linear_time_oram::LinearTimeOram, Address, BlockSize, BlockValue, Oram};
-
-use rand::distributions::Uniform;
 use rand::rngs::OsRng;
-use rand::{Rng, RngCore};
+use rand::{RngCore};
 
 const BLOCK_SIZE: BlockSize = 64;
 const DB_SIZE: Address = 64;

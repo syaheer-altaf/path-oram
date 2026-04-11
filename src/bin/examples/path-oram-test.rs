@@ -60,8 +60,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         database.push(block);
     }
 
-    // println!("database[0] (normal access):\n\n {:?}\n", database[0]);
-    // println!("is database[0] sorted (normal access)? {}", is_sort(&database[0]));
+    println!("database[0] (normal access):\n\n {:?}\n", database[0]);
+    println!("is database[0] sorted (normal access)? {}", is_sort(&database[0]));
 
     // Initialize oram
     let mut oram =
@@ -79,11 +79,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Modify the database via oram
-    // let mut arr = oram.read(0 as Address, &mut rng, true).unwrap().data;
-    // qsort(&mut arr);
-    // oram.write(0 as Address, BlockValue::new(arr), &mut rng, true)?;
-    // println!("database[0] (oram access read):\n\n {:?}\n", oram.read(0 as Address, &mut rng, false).unwrap().data);
-    // println!("is database[0] sorted (oram access read)? {}", is_sort(&oram.read(0 as Address, &mut rng, false).unwrap().data));
+    let mut arr = oram.read(0 as Address, &mut rng, true).unwrap().data;
+    qsort(&mut arr);
+    oram.write(0 as Address, BlockValue::new(arr), &mut rng, true)?;
+    println!("database[0] (oram access read):\n\n {:?}\n", oram.read(0 as Address, &mut rng, false).unwrap().data);
+    println!("is database[0] sorted (oram access read)? {}", is_sort(&oram.read(0 as Address, &mut rng, false).unwrap().data));
 
     // Run random accesses
     for _ in 0..100 {
