@@ -35,3 +35,7 @@ path = "src/bin/examples/path-oram-test.rs"
 [[bin]]
 name = "experiment"
 path = "src/bin/oram-exp.rs"
+
+[[bin]]
+name = "correctness"
+path = "src/bin/correctness.rs"
