@@ -8,7 +8,7 @@ use oram::{
 
 use rand::rngs::OsRng;
 use rand::RngCore;
-use std::collections::HashSet;
+use ahash::AHashSet;
 
 /*
  * NOTE: The convention used in this crate is slightly different from the original Path ORAM;
@@ -39,7 +39,7 @@ fn delete_dir_if_exists(dir_path_str: &str) -> std::io::Result<()> {
 }
 
 fn random_distinct_indices(rng: &mut OsRng, count: usize, upper: Address) -> Vec<Address> {
-    let mut seen = HashSet::with_capacity(count);
+    let mut seen = AHashSet::with_capacity(count);
     let mut indices = Vec::with_capacity(count);
 
     while indices.len() < count {

@@ -8,7 +8,7 @@ use oram::{
 
 use rand::rngs::OsRng;
 use rand::RngCore;
-use std::collections::HashSet;
+use ahash::AHashSet;
 
 /*
  * NOTE: The convention used in this crate is slightly different from the original Path ORAM;
@@ -24,7 +24,7 @@ const BLOCK_SIZE: BlockSize = 64;
 const RAND_NUM_TESTS: usize = 1_000;                // number of tests for random accesses to a batch of indices.
 
 fn random_distinct_indices(rng: &mut OsRng, count: usize, upper: Address) -> Vec<Address> {
-    let mut seen = HashSet::with_capacity(count);
+    let mut seen = AHashSet::with_capacity(count);
     let mut indices = Vec::with_capacity(count);
 
     while indices.len() < count {
