@@ -319,13 +319,13 @@ impl<V: OramBlock> ObliviousStash<V> {
             let n_size = 2_usize.pow(u32::try_from(height)?);
             let log_path_name = format!("./exp-results/results/N_{}/{}", n_size, self.m_batch);
             let bandwidth_log_filename = format!("{}/{}", log_path_name, "bandwidth_batch.log");
-            let stash_log_filename = format!("{}/{}", log_path_name, "stash_batch.log");
+            // let stash_log_filename = format!("{}/{}", log_path_name, "stash_batch.log");
             let _ = create_path_if_not_exists(&log_path_name);
             let _ = append_to_file(
                 &bandwidth_log_filename,
                 union_block_count.to_string().as_str(),
             );
-            let _ = append_to_file(&stash_log_filename, self.occupancy().to_string().as_str());
+            // let _ = append_to_file(&stash_log_filename, self.occupancy().to_string().as_str());
         }
 
         Ok(paths_union)
@@ -462,7 +462,19 @@ impl<V: OramBlock> ObliviousStash<V> {
             }
 
             // If not all buckets are filled, stash overflowed with respect to this union.
+            // Note: stash overflow may still happen using batched access here; constant may be
+            // large for the stash size than what's defined here; empirically we can show it is still O(log N);
+            // so in the event there is overflow, just log the stash occupancy before resize.
             if exists_unfilled_buckets.into() {
+                if is_log {
+                    let height = union_buckets[0].ct_depth(); // Use the first position to get the height of the tree
+                    let n_size = 2_usize.pow(u32::try_from(height)?);
+                    let log_path_name =
+                        format!("./exp-results/results/N_{}/{}", n_size, self.m_batch);
+                    let stash_log_filename = format!("{}/{}", log_path_name, "stash_batch.log");
+                    let _ = create_path_if_not_exists(&log_path_name);
+                    let _ = append_to_file(&stash_log_filename, self.occupancy().to_string().as_str());
+                }
                 first_unassigned_block_index = self.blocks.len() - 1;
 
                 self.blocks.resize(
@@ -474,11 +486,14 @@ impl<V: OramBlock> ObliviousStash<V> {
                     TreeIndex::MAX,
                 );
 
-                // log::warn!(
+                log::warn!(
+                    "Stash overflow occurred during union writeback. Stash resized to {} blocks.",
+                    self.blocks.len()
+                );
+                // println!(
                 //     "Stash overflow occurred during union writeback. Stash resized to {} blocks.",
                 //     self.blocks.len()
                 // );
-                println!("Stash overflow occurred during union writeback. Stash resized to {} blocks.", self.blocks.len());
             }
         }
 
