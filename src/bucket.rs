@@ -63,7 +63,7 @@ impl<const B: BlockSize> Distribution<BlockValue<B>> for Standard {
 
 #[derive(Clone, Copy, Default, PartialEq)]
 /// A Path ORAM block combines an `OramBlock` V with two metadata fields; its ORAM `address` and its `position` in the tree.
-pub(crate) struct PathOramBlock<V> {
+pub struct PathOramBlock<V> {
     pub value: V,
     pub address: Address,
     pub position: TreeIndex,

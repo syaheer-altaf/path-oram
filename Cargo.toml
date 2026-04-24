@@ -38,5 +38,9 @@ name = "exp-stash"
 path = "src/bin/oram-exp-stash.rs"
 
 [[bin]]
+name = "exp-stash-fail"
+path = "src/bin/oram-exp-stash-fail.rs"
+
+[[bin]]
 name = "correctness"
 path = "src/bin/correctness.rs"

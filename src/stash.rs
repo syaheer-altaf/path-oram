@@ -23,7 +23,7 @@ const STASH_GROWTH_INCREMENT: usize = 10;
 #[derive(Debug)]
 /// A fixed-size, obliviously accessed Path ORAM stash data structure implemented using oblivious sorting.
 pub struct ObliviousStash<V: OramBlock> {
-    blocks: Vec<PathOramBlock<V>>,
+    pub blocks: Vec<PathOramBlock<V>>,
     path_size: StashSize,
     m_batch: usize, // If single accesses are to be expected, let m_batch = 1.
 }

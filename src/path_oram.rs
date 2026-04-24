@@ -73,7 +73,7 @@ pub struct PathOram<V: OramBlock, const Z: BucketSize, const AB: BlockSize> {
     /// The underlying untrusted memory that the ORAM is obliviously accessing on behalf of its client.
     physical_memory: Vec<Bucket<V, Z>>,
     /// The Path ORAM stash.
-    stash: ObliviousStash<V>,
+    pub stash: ObliviousStash<V>,
     /// The Path ORAM position map.
     position_map: PositionMap<AB, Z>,
     /// The height of the Path ORAM tree data structure.
