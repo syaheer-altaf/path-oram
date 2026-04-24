@@ -8,7 +8,6 @@ use oram::{
 
 use rand::rngs::OsRng;
 use rand::RngCore;
-use ahash::AHashSet;
 
 /*
  * NOTE: The convention used in this crate is slightly different from the original Path ORAM;
@@ -23,15 +22,11 @@ const INITIAL_STASH_OVERFLOW_SIZE: StashSize = DEFAULT_STASH_OVERFLOW_SIZE;
 const BLOCK_SIZE: BlockSize = 64;
 const RAND_NUM_TESTS: usize = 1_000;                // number of tests for random accesses to a batch of indices.
 
-fn random_distinct_indices(rng: &mut OsRng, count: usize, upper: Address) -> Vec<Address> {
-    let mut seen = AHashSet::with_capacity(count);
+fn random_indices(rng: &mut OsRng, count: usize, upper: Address) -> Vec<Address> {
     let mut indices = Vec::with_capacity(count);
 
-    while indices.len() < count {
-        let candidate = rng.next_u64() % upper;
-        if seen.insert(candidate) {
-            indices.push(candidate);
-        }
+    for _ in 0..count {
+        indices.push(rng.next_u64() % upper);
     }
 
     indices
@@ -109,7 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Checking correctness
             for _n in 0..RAND_NUM_TESTS {
                 // Get random indices with the size of batch.
-                let indices = random_distinct_indices(&mut rng, *batch_size as usize, db_size);
+                let indices = random_indices(&mut rng, *batch_size as usize, db_size);
                 // Access the random indices using ordinary path oram
                 let mut samples: Vec<BlockValue<BLOCK_SIZE>> = vec![];
                 for idx in indices.iter() {

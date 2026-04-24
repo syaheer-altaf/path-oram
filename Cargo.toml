@@ -34,8 +34,8 @@ name = "path-oram-test"
 path = "src/bin/examples/path-oram-test.rs"
 
 [[bin]]
-name = "experiment"
-path = "src/bin/oram-exp.rs"
+name = "exp-stash"
+path = "src/bin/oram-exp-stash.rs"
 
 [[bin]]
 name = "correctness"

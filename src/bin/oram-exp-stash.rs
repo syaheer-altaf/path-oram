@@ -8,7 +8,6 @@ use oram::{
 
 use rand::rngs::OsRng;
 use rand::RngCore;
-use ahash::AHashSet;
 
 /*
  * NOTE: The convention used in this crate is slightly different from the original Path ORAM;
@@ -38,15 +37,11 @@ fn delete_dir_if_exists(dir_path_str: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-fn random_distinct_indices(rng: &mut OsRng, count: usize, upper: Address) -> Vec<Address> {
-    let mut seen = AHashSet::with_capacity(count);
+fn random_indices(rng: &mut OsRng, count: usize, upper: Address) -> Vec<Address> {
     let mut indices = Vec::with_capacity(count);
 
-    while indices.len() < count {
-        let candidate = rng.next_u64() % upper;
-        if seen.insert(candidate) {
-            indices.push(candidate);
-        }
+    for _ in 0..count {
+        indices.push(rng.next_u64() % upper);
     }
 
     indices
@@ -117,7 +112,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Warm-up phase
             for _ in 0..RAND_NUM_TESTS {
                 // Get random indices with the size of batch.
-                let indices = random_distinct_indices(&mut rng, *batch_size as usize, db_size);
+                let indices = random_indices(&mut rng, *batch_size as usize, db_size);
 
                 // Random batched accesses to path oram
                 let _: Vec<BlockValue<BLOCK_SIZE>> =
