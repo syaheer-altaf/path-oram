@@ -38,6 +38,10 @@ name = "exp-stash"
 path = "src/bin/oram-exp-stash.rs"
 
 [[bin]]
+name = "exp-perf"
+path = "src/bin/oram-exp-perf.rs"
+
+[[bin]]
 name = "exp-stash-fail"
 path = "src/bin/oram-exp-stash-fail.rs"
 
