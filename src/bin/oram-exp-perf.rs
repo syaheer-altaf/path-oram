@@ -19,7 +19,7 @@ const POSITIONS_PER_BLOCK: BlockSize = DEFAULT_POSITIONS_PER_BLOCK;
 const INITIAL_STASH_OVERFLOW_SIZE: StashSize = DEFAULT_STASH_OVERFLOW_SIZE; // default = 40
 
 const BLOCK_SIZE: BlockSize = 64;
-const DET_NUM_TESTS: usize = 100; // monte carlo
+const DET_NUM_TESTS: usize = 1000; // monte carlo
 /* ── Log directory ────────────────────────────────────────────────── */
 const LOG_DIR: &str = "./exp-results/results/exp-perf";
 

@@ -20,7 +20,7 @@ const POSITIONS_PER_BLOCK: BlockSize = DEFAULT_POSITIONS_PER_BLOCK;
 const INITIAL_STASH_OVERFLOW_SIZE: StashSize = DEFAULT_STASH_OVERFLOW_SIZE;
 
 const BLOCK_SIZE: BlockSize = 64;
-const RAND_NUM_TESTS: usize = 1_00_000;                  // number of tests for random accesses to a batch of indices.
+const RAND_NUM_TESTS: usize = 10000;                  // number of tests for random accesses to a batch of indices.
 const DET_NUM_TESTS: usize = RAND_NUM_TESTS * 10;        // number of tests for deterministic (worst-case) accesses to a batch of indices.
 
 fn delete_dir_if_exists(dir_path_str: &str) -> std::io::Result<()> {

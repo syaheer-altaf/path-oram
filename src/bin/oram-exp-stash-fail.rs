@@ -22,7 +22,8 @@ const STASH_GROWTH_INCREMENT: usize = 10;
 const BLOCK_SIZE: BlockSize = 64;
 
 /* ── Experiment parameters ────────────────────────────────────────── */
-const DET_NUM_TESTS: usize = 1_000_000_000; // 10^9 deterministic accesses
+const RAND_NUM_TESTS: usize = 100; 
+const DET_NUM_TESTS: usize = RAND_NUM_TESTS * 10;
 
 /// We give the ORAM a large ceiling stash so it never hard-aborts during
 /// the experiment; we observe the true occupancy distribution freely.
@@ -40,7 +41,7 @@ const PROGRESS_INTERVAL: usize = 10_000_000; // every 10 M ops
 const LOG_DIR: &str = "./exp-results/results/exp-stash-failures";
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Helper: delete directory if it exists
+// Helpers
 // ──────────────────────────────────────────────────────────────────────────────
 fn delete_dir_if_exists(path_str: &str) -> std::io::Result<()> {
     let path = std::path::Path::new(path_str);
@@ -51,6 +52,15 @@ fn delete_dir_if_exists(path_str: &str) -> std::io::Result<()> {
         println!("[setup] Directory not found (nothing to remove): {}", path_str);
     }
     Ok(())
+}
+fn random_indices(rng: &mut OsRng, count: usize, upper: Address) -> Vec<Address> {
+    let mut indices = Vec::with_capacity(count);
+
+    for _ in 0..count {
+        indices.push(rng.next_u64() % upper);
+    }
+
+    indices
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -116,10 +126,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut rng = OsRng;
 
     // m = 1 is equivalent to standard (single-access) Path ORAM
-    let batch_sizes: Vec<u64> = vec![1, 2, 4, 8, 16, 32];
+    let batch_sizes: Vec<u64> = vec![1, 2, 4, 8];
 
     // Security parameters: we target P(failure) ≤ 2^{-λ} for each λ
-    let secur_params: Vec<u64> = vec![16, 32];
+    let secur_params: Vec<u64> = vec![80, 128];
 
     // ── (Re)create log directory ───────────────────────────────────────────
     let _ = delete_dir_if_exists(LOG_DIR);
@@ -203,7 +213,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             for (i, bytes) in database.iter().enumerate() {
                 batch_oram.write(i as Address, BlockValue::new(*bytes), &mut rng, false)?;
             }
+            // Warm-up phase
+            for _ in 0..RAND_NUM_TESTS {
+                // Get random indices with the size of batch.
+                let indices = random_indices(&mut rng, *batch_size as usize, *db_size);
 
+                // Random batched accesses to path oram
+                let _: Vec<BlockValue<BLOCK_SIZE>> =
+                    batch_oram.read_with_batch(indices, &mut rng, false)?;
+            }
             // ── Measurement phase ──────────────────────────────────────────
             println!("  │  Running {} deterministic accesses …", DET_NUM_TESTS);
 
@@ -219,7 +237,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .map(|n| (n + offset * (*batch_size)) % db_size)
                     .collect();
 
-                let _ = batch_oram.read_with_batch(indices, &mut rng, true)?;
+                let _ = batch_oram.read_with_batch(indices, &mut rng, false)?;
 
                 // Record post-eviction stash occupancy
                 let occ = batch_oram.stash.blocks.len();
