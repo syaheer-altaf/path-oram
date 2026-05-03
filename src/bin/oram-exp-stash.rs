@@ -20,8 +20,8 @@ const POSITIONS_PER_BLOCK: BlockSize = DEFAULT_POSITIONS_PER_BLOCK;
 const INITIAL_STASH_OVERFLOW_SIZE: StashSize = DEFAULT_STASH_OVERFLOW_SIZE;
 
 const BLOCK_SIZE: BlockSize = 64;
-const RAND_NUM_TESTS: usize = 10000;                  // number of tests for random accesses to a batch of indices.
-const DET_NUM_TESTS: usize = RAND_NUM_TESTS * 10;        // number of tests for deterministic (worst-case) accesses to a batch of indices.
+const RAND_NUM_TESTS: usize = 1_000_000;                   // number of tests for random accesses to a batch of indices.
+const DET_NUM_TESTS: usize = RAND_NUM_TESTS * 1000;        // number of tests for deterministic (worst-case) accesses to a batch of indices.
 
 fn delete_dir_if_exists(dir_path_str: &str) -> std::io::Result<()> {
     let path = std::path::Path::new(dir_path_str);
@@ -51,7 +51,7 @@ fn random_indices(rng: &mut OsRng, count: usize, upper: Address) -> Vec<Address>
 Experimental Setup:
 ---------------------
 1) Initialize ORAM of size db_size with random bytes.
-2) Warm-up phase: make 10^9 batched accesses, (distinct) indices of batch size are requested uniformly at random
+2) Warm-up phase: make 10^6 batched accesses, indices of batch size are requested uniformly at random
    with replacement from the range [0, N-1].
 3) Measurement phase: make deterministic round-robin accesses, 10^9 rounds.
 */
@@ -74,7 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         db_size_list.push(args[i].parse()?);
     }
     // m = 1 is equivalent to path oram with a single access
-    let batch_sizes: Vec<u64> = vec![1, 2, 4, 8, 16, 32];
+    let batch_sizes: Vec<u64> = vec![1, 2, 4, 8];
 
     // delete old experiment results (if any)
 

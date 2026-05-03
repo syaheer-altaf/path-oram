@@ -267,68 +267,111 @@ impl<V: OramBlock> ObliviousStash<V> {
     ) -> Result<Vec<u64>, OramError> {
         use std::collections::HashSet;
 
-        let mut paths_union: Vec<u64> = Vec::new();
-        let mut seen: HashSet<u64> = HashSet::new();
+        if positions.is_empty() {
+            return Ok(Vec::new());
+        }
 
         let fixed_path_block_count: usize = usize::try_from(self.path_size)?;
         let buckets_per_path = self.path_size / u64::try_from(Z)?;
 
+        /*
+            Build the union in the canonical order required by the batched protocol:
+
+                root first,
+                then increasing depth,
+                and within each level, increasing bucket id.
+
+            This differs from the earlier "first encountered" order, which depended on
+            the order of positions in the batch.
+        */
+        let mut union_buckets: Vec<TreeIndex> = Vec::new();
+        let mut seen: HashSet<TreeIndex> = HashSet::new();
+
         for &position in positions {
             let height = position.ct_depth();
 
-            for i in (0..buckets_per_path).rev() {
-                let bucket_index = position.ct_node_on_path(i, height);
+            for depth in 0..buckets_per_path {
+                let bucket_index = position.ct_node_on_path(depth, height);
+
                 if seen.insert(bucket_index) {
-                    paths_union.push(bucket_index);
+                    union_buckets.push(bucket_index);
                 }
             }
         }
 
-        let union_block_count = paths_union.len() * Z;
+        union_buckets.sort_unstable_by(|a, b| {
+            let da = a.ct_depth();
+            let db = b.ct_depth();
 
-        // If the union needs a larger scratch prefix than the fixed single-path prefix,
-        // preserve the existing overflow stash blocks by shifting them right.
-        if union_block_count > fixed_path_block_count {
-            let extra = union_block_count - fixed_path_block_count;
-            let old_len = self.blocks.len();
+            da.cmp(&db).then_with(|| a.cmp(b))
+        });
 
-            self.blocks
-                .resize(old_len + extra, PathOramBlock::<V>::dummy());
+        let union_block_count = union_buckets.len() * Z;
 
-            // Shift the old overflow region [fixed_path_block_count, old_len) to the right by `extra`.
-            for i in (fixed_path_block_count..old_len).rev() {
-                self.blocks[i + extra] = self.blocks[i];
-            }
+        /*
+            Preserve only the real overflow stash blocks from the previous layout.
 
-            // Optional but clean: blank out the newly opened region.
-            for i in fixed_path_block_count..(fixed_path_block_count + extra) {
-                self.blocks[i] = PathOramBlock::<V>::dummy();
-            }
-        }
+            Invariant we maintain:
 
-        // Load the union buckets into the front scratch region.
-        for (i, &bid) in paths_union.iter().enumerate() {
-            let bucket = physical_memory[usize::try_from(bid)?];
+                self.blocks =
+                    [fixed scratch prefix of length self.path_size]
+                    [real overflow stash blocks]
+                    [one reserved trailing dummy block]
+
+            During a union read, the scratch prefix may need to be temporarily larger
+            than self.path_size. Instead of shifting pieces of the vector conditionally,
+            rebuild the layout explicitly:
+
+                [union scratch prefix]
+                [old real overflow stash blocks]
+                [reserved trailing dummy]
+        */
+        let overflow_blocks: Vec<PathOramBlock<V>> = self
+            .blocks
+            .iter()
+            .skip(fixed_path_block_count)
+            .copied()
+            .filter(|block| !bool::from(block.ct_is_dummy()))
+            .collect();
+
+        let scratch_block_count = fixed_path_block_count.max(union_block_count);
+
+        let mut rebuilt_blocks = vec![PathOramBlock::<V>::dummy(); scratch_block_count];
+
+        /*
+            Load the union buckets into the scratch prefix.
+
+            The remote physical access pattern is exactly the canonical union.
+        */
+        for (bucket_slot, &bucket_index) in union_buckets.iter().enumerate() {
+            let bucket = physical_memory[usize::try_from(bucket_index)?];
+
             for slot_index in 0..Z {
-                self.blocks[Z * i + slot_index] = bucket.blocks[slot_index];
+                rebuilt_blocks[Z * bucket_slot + slot_index] = bucket.blocks[slot_index];
             }
         }
+
+        rebuilt_blocks.extend(overflow_blocks);
+
+        // Preserve the library convention: one trailing dummy reserved for insertions.
+        rebuilt_blocks.push(PathOramBlock::<V>::dummy());
+
+        self.blocks = rebuilt_blocks;
 
         if is_log {
-            let height = positions[0].ct_depth(); // Use the first position to get the height of the tree
+            let height = positions[0].ct_depth();
             let n_size = 2_usize.pow(u32::try_from(height)?);
             let log_path_name = format!("./exp-results/results/N_{}/{}", n_size, self.m_batch);
             let bandwidth_log_filename = format!("{}/{}", log_path_name, "bandwidth_batch.log");
-            // let stash_log_filename = format!("{}/{}", log_path_name, "stash_batch.log");
+
             let _ = create_path_if_not_exists(&log_path_name);
             let _ = append_to_file(
                 &bandwidth_log_filename,
                 union_block_count.to_string().as_str(),
             );
-            // let _ = append_to_file(&stash_log_filename, self.occupancy().to_string().as_str());
         }
 
-        Ok(paths_union)
+        Ok(union_buckets)
     }
 
     pub fn write_to_path_union<const Z: BucketSize>(
@@ -337,194 +380,222 @@ impl<V: OramBlock> ObliviousStash<V> {
         union_buckets: &[TreeIndex],
         is_log: bool,
     ) -> Result<(), OramError> {
-        use std::collections::{HashMap, HashSet}; // +HashMap
-        use subtle::Choice;
+        use std::collections::{HashMap, HashSet};
 
         if union_buckets.is_empty() {
             return Ok(());
         }
 
-        // Deduplicate defensively, then order buckets deepest-to-shallowest so that
-        // real blocks are evicted as deep as possible, analogous to write_to_path().
+        let fixed_path_block_count: usize = usize::try_from(self.path_size)?;
+        let z_u64 = u64::try_from(Z)?;
+
+        /*
+            The read-side union is canonical root-to-leaf.
+
+            For writeback, we want reverse canonical order:
+                deeper buckets first,
+                then shallower buckets,
+                tie by increasing bucket id.
+
+            This matches the Path ORAM greedy eviction rule: place each block as deep
+            as possible among the touched buckets.
+        */
         let mut seen = HashSet::new();
+
         let mut ordered_union_buckets: Vec<TreeIndex> = union_buckets
             .iter()
-            .map(|&b| b)
-            .filter(|b| seen.insert(*b))
+            .copied()
+            .filter(|bucket| seen.insert(*bucket))
             .collect();
 
-        ordered_union_buckets.sort_by(|a, b| {
+        ordered_union_buckets.sort_unstable_by(|a, b| {
             let da = a.ct_depth();
             let db = b.ct_depth();
+
             db.cmp(&da).then_with(|| a.cmp(b))
         });
 
-        // For each stash block, record which union-bucket slot-group it is assigned to.
-        // Values 0..ordered_union_buckets.len()-1 mean "assigned to that bucket".
-        // TreeIndex::MAX - 1 means overflow.
-        // TreeIndex::MAX means still unassigned (used mainly for dummies before fill).
-        let mut bucket_assignments = vec![TreeIndex::MAX; self.blocks.len()];
-        let mut bucket_counts = vec![0u64; ordered_union_buckets.len()];
+        let union_bucket_count = ordered_union_buckets.len();
+        let written_block_count = union_bucket_count * Z;
 
-        // We need a valid leaf for dummy blocks, though it will never matter because
-        // assignments for dummies are gated by `!block_is_dummy`.
-        let max_depth = ordered_union_buckets
-            .iter()
-            .map(|b| b.ct_depth())
-            .max()
-            .unwrap_or(0);
-        let an_arbitrary_leaf: TreeIndex = 1u64 << max_depth;
+        /*
+            Map bucket id -> slot in the writeback order.
 
-        // Precompute reverse index: bucket_index -> slot in ordered_union_buckets.
-        // This reduces real-block assignment from O(union_size) per block to O(tree_depth)
-        // per block: instead of scanning all union buckets, we walk the block's path from
-        // leaf to root and do a O(1) HashMap lookup at each ancestor level.
-        // This is safe because this lookup does not affect the set of physical memory
-        // addresses accessed — the ORAM access pattern is already fixed by ordered_union_buckets.
+            Slot 0 corresponds to the first bucket written, i.e. a deepest bucket.
+            Since we assign blocks by walking from leaf to root, this gives the
+            deepest available eligible bucket.
+        */
         let bucket_index_to_slot: HashMap<TreeIndex, usize> = ordered_union_buckets
             .iter()
             .enumerate()
-            .map(|(slot, &idx)| (idx, slot))
+            .map(|(slot, &bucket_index)| (bucket_index, slot))
             .collect();
 
-        // Assign all non-dummy blocks either to some bucket in the union or to overflow.
-        for (i, block) in self.blocks.iter().enumerate() {
-            let block_is_dummy = block.ct_is_dummy();
-            let block_position =
-                TreeIndex::conditional_select(&block.position, &an_arbitrary_leaf, block_is_dummy);
+        /*
+            Assignment keys used for bitonic sorting:
 
-            // Dummy blocks are handled in the fill pass below; skip them here.
-            if bool::from(block_is_dummy) {
+                0, 1, ..., union_bucket_count - 1
+                    assigned to a touched bucket
+
+                TreeIndex::MAX - 1
+                    real overflow stash block
+
+                TreeIndex::MAX
+                    unused dummy block
+
+            After sorting:
+
+                [all blocks/dummies assigned to bucket 0]
+                [all blocks/dummies assigned to bucket 1]
+                ...
+                [real overflow blocks]
+                [unused dummies]
+        */
+        let mut bucket_assignments = vec![TreeIndex::MAX; self.blocks.len()];
+        let mut bucket_counts = vec![0u64; union_bucket_count];
+
+        /*
+            Assign real blocks to the deepest eligible touched bucket.
+
+            A real block with assigned leaf x can go into exactly the buckets lying
+            on path(x). Since the union contains only touched buckets, we walk
+            path(x) from leaf to root and choose the first touched bucket with
+            available capacity.
+        */
+        for (block_index, block) in self.blocks.iter().enumerate() {
+            if bool::from(block.ct_is_dummy()) {
                 continue;
             }
 
-            let block_depth = block_position.ct_depth();
+            let leaf = block.position;
+            let leaf_depth = leaf.ct_depth();
+
             let mut assigned = false;
 
-            // Walk the block's path from leaf toward root (deepest-to-shallowest),
-            // consistent with the ordering of ordered_union_buckets so the deepest
-            // eligible bucket is always preferred. O(depth) vs the prior O(union_size).
-            for d in (0..=block_depth).rev() {
-                let ancestor = block_position.ct_node_on_path(d, block_depth);
+            for depth in (0..=leaf_depth).rev() {
+                let ancestor = leaf.ct_node_on_path(depth, leaf_depth);
 
-                if let Some(&slot) = bucket_index_to_slot.get(&ancestor) {
-                    if bucket_counts[slot] < u64::try_from(Z)? {
-                        bucket_assignments[i] = u64::try_from(slot)?;
-                        bucket_counts[slot] += 1;
+                if let Some(&bucket_slot) = bucket_index_to_slot.get(&ancestor) {
+                    if bucket_counts[bucket_slot] < z_u64 {
+                        bucket_assignments[block_index] = TreeIndex::try_from(bucket_slot)?;
+                        bucket_counts[bucket_slot] += 1;
                         assigned = true;
                         break;
                     }
                 }
             }
 
-            // If this real block could not be placed into any bucket in the union,
-            // it remains in stash overflow.
             if !assigned {
-                bucket_assignments[i] = TreeIndex::MAX - 1;
+                bucket_assignments[block_index] = TreeIndex::MAX - 1;
             }
         }
 
-        // Fill all remaining non-full buckets in the union with dummy blocks.
-        let mut exists_unfilled_buckets: Choice = 1.into();
-        let mut first_unassigned_block_index: usize = 0;
+        /*
+            Ensure enough dummy blocks exist to pad every touched bucket to size Z.
 
-        while exists_unfilled_buckets.into() {
-            for (i, block) in self
-                .blocks
-                .iter()
-                .enumerate()
-                .skip(first_unassigned_block_index)
+            Unlike the old loop, this computes the exact deficit first, extends once,
+            then assigns dummy blocks to the remaining bucket slots.
+        */
+        let dummy_slots_needed: usize = bucket_counts
+            .iter()
+            .map(|&count| usize::try_from(z_u64 - count).unwrap_or(0))
+            .sum();
+
+        let available_dummy_count = self
+            .blocks
+            .iter()
+            .filter(|block| bool::from(block.ct_is_dummy()))
+            .count();
+
+        if dummy_slots_needed > available_dummy_count {
+            let extra = dummy_slots_needed - available_dummy_count;
+
+            self.blocks
+                .resize(self.blocks.len() + extra, PathOramBlock::<V>::dummy());
+
+            bucket_assignments.resize(bucket_assignments.len() + extra, TreeIndex::MAX);
+        }
+
+        /*
+            Assign dummy blocks to the remaining unfilled bucket slots.
+
+            This is purely padding. It does not affect correctness of real blocks,
+            but it guarantees that after sorting, the first written_block_count
+            entries contain exactly Z blocks per touched bucket.
+        */
+        let mut next_bucket_slot = 0usize;
+
+        for block_index in 0..self.blocks.len() {
+            if next_bucket_slot >= union_bucket_count {
+                break;
+            }
+
+            if !bool::from(self.blocks[block_index].ct_is_dummy()) {
+                continue;
+            }
+
+            while next_bucket_slot < union_bucket_count && bucket_counts[next_bucket_slot] >= z_u64
             {
-                // Preserve the library's convention: last block reserved for writes
-                // to uninitialized addresses.
-                if i == self.blocks.len() - 1 {
-                    break;
-                }
-
-                let block_free = block.ct_is_dummy();
-                let mut assigned: Choice = 0.into();
-
-                for (bucket_slot, count) in bucket_counts.iter_mut().enumerate() {
-                    let full = count.ct_eq(&(u64::try_from(Z)?));
-                    let no_op = assigned | full | !block_free;
-
-                    bucket_assignments[i]
-                        .conditional_assign(&(u64::try_from(bucket_slot)?), !no_op);
-                    count.conditional_assign(&(*count + 1), !no_op);
-                    assigned |= !no_op;
-                }
+                next_bucket_slot += 1;
             }
 
-            exists_unfilled_buckets = 0.into();
-            for count in bucket_counts.iter() {
-                let full = count.ct_eq(&(u64::try_from(Z)?));
-                exists_unfilled_buckets |= !full;
+            if next_bucket_slot >= union_bucket_count {
+                break;
             }
 
-            // If not all buckets are filled, stash overflowed with respect to this union.
-            // Note: stash overflow may still happen using batched access here; constant may be
-            // large for the stash size than what's defined here; empirically we can show it is still O(log N);
-            // so in the event there is overflow, just log the stash occupancy before resize.
-            if exists_unfilled_buckets.into() {
-                if is_log {
-                    let height = union_buckets[0].ct_depth(); // Use the first position to get the height of the tree
-                    let n_size = 2_usize.pow(u32::try_from(height)?);
-                    let log_path_name =
-                        format!("./exp-results/results/N_{}/{}", n_size, self.m_batch);
-                    let stash_log_filename = format!("{}/{}", log_path_name, "stash_batch.log");
-                    let _ = create_path_if_not_exists(&log_path_name);
-                    let _ = append_to_file(&stash_log_filename, self.occupancy().to_string().as_str());
-                }
-                first_unassigned_block_index = self.blocks.len() - 1;
+            bucket_assignments[block_index] = TreeIndex::try_from(next_bucket_slot)?;
+            bucket_counts[next_bucket_slot] += 1;
+        }
 
-                self.blocks.resize(
-                    self.blocks.len() + STASH_GROWTH_INCREMENT,
-                    PathOramBlock::<V>::dummy(),
-                );
-                bucket_assignments.resize(
-                    bucket_assignments.len() + STASH_GROWTH_INCREMENT,
-                    TreeIndex::MAX,
-                );
-
-                log::warn!(
-                    "Stash overflow occurred during union writeback. Stash resized to {} blocks.",
-                    self.blocks.len()
-                );
-                // println!(
-                //     "Stash overflow occurred during union writeback. Stash resized to {} blocks.",
-                //     self.blocks.len()
-                // );
+        /*
+            At this point every touched bucket should have exactly Z assigned blocks.
+            If not, there is an internal accounting bug.
+        */
+        for (bucket_slot, &count) in bucket_counts.iter().enumerate() {
+            if count != z_u64 {
+                return Err(OramError::InvalidConfigurationError {
+                    parameter_name: "union writeback bucket fill".to_string(),
+                    parameter_value: format!(
+                        "bucket slot {} has {} assigned blocks, expected {}",
+                        bucket_slot, count, Z
+                    ),
+                });
             }
         }
 
         bitonic_sort_by_keys(&mut self.blocks, &mut bucket_assignments);
 
-        // Write the first |union_buckets| * Z blocks back into the selected buckets.
+        /*
+            Write back the assigned prefix.
+
+            Since the sort keys are bucket slots, the first Z entries belong to
+            ordered_union_buckets[0], the next Z entries to ordered_union_buckets[1],
+            and so on.
+        */
         let mut write_bandwidth = 0usize;
+
         for (bucket_slot, &bucket_index) in ordered_union_buckets.iter().enumerate() {
             let bucket_to_write = &mut physical_memory[usize::try_from(bucket_index)?];
+
             for slot_number in 0..Z {
                 let stash_index = bucket_slot * Z + slot_number;
                 bucket_to_write.blocks[slot_number] = self.blocks[stash_index];
             }
-            write_bandwidth += bucket_to_write.blocks.len();
+
+            write_bandwidth += Z;
         }
 
-        // IMPORTANT:
-        // Unlike the fixed-size single-path case, union writeback may use a variable-size
-        // prefix of the stash. If we leave those blocks in-place, later accesses may not
-        // overwrite all of them, leaving stale duplicates in stash.
-        let written_block_count = ordered_union_buckets.len() * Z;
-        let fixed_path_block_count = usize::try_from(self.path_size)?;
+        /*
+            Rebuild the client layout after writeback.
 
-        // After sorting, layout is:
-        //   [written-back assigned blocks][real overflow blocks][dummy blocks]
-        //
-        // We must preserve the library invariant that self.blocks always begins with
-        // a fixed scratch prefix of length self.path_size, followed by overflow stash
-        // blocks, followed by one reserved trailing dummy block.
-        let overflow_blocks: Vec<PathOramBlock<V>> = self.blocks[written_block_count..]
+            All blocks written into the touched buckets must be removed from the
+            client stash. Real blocks that could not be assigned to the union remain
+            as overflow stash blocks.
+        */
+        let overflow_blocks: Vec<PathOramBlock<V>> = self
+            .blocks
             .iter()
+            .skip(written_block_count)
             .copied()
             .filter(|block| !bool::from(block.ct_is_dummy()))
             .collect();
@@ -533,33 +604,32 @@ impl<V: OramBlock> ObliviousStash<V> {
 
         rebuilt_blocks.extend(overflow_blocks);
 
-        // Preserve the library convention: one trailing dummy block reserved for
-        // writes to previously uninitialized addresses.
+        // Preserve the library convention: one trailing dummy block reserved for insertion.
         rebuilt_blocks.push(PathOramBlock::<V>::dummy());
 
         self.blocks = rebuilt_blocks;
 
         if is_log {
-            let height = union_buckets[0].ct_depth(); // Use the first position to get the height of the tree
-            let n_size = 2_usize.pow(u32::try_from(height)?);
+            let max_depth = union_buckets
+                .iter()
+                .map(|bucket| bucket.ct_depth())
+                .max()
+                .unwrap_or(0);
+
+            let n_size = 2_usize.pow(u32::try_from(max_depth)?);
             let log_path_name = format!("./exp-results/results/N_{}/{}", n_size, self.m_batch);
             let bandwidth_log_filename = format!("{}/{}", log_path_name, "bandwidth_batch.log");
             let stash_log_filename = format!("{}/{}", log_path_name, "stash_batch.log");
+
             let _ = create_path_if_not_exists(&log_path_name);
+
             let _ = append_to_file(
                 &bandwidth_log_filename,
                 write_bandwidth.to_string().as_str(),
             );
+
             let _ = append_to_file(&stash_log_filename, self.occupancy().to_string().as_str());
         }
-
-        // Check stash size and make sure it does not blow up.
-        // println!(
-        //     "stash_len={}, occupancy={}, union_slots={}",
-        //     self.blocks.len(),
-        //     self.occupancy(),
-        //     ordered_union_buckets.len() * Z
-        // );
 
         Ok(())
     }
@@ -570,6 +640,8 @@ impl<V: OramBlock> ObliviousStash<V> {
         new_positions: Vec<TreeIndex>,
         value_callback: F,
     ) -> Result<Vec<V>, OramError> {
+        use subtle::Choice;
+
         if addresses.len() != new_positions.len() {
             return Err(OramError::InvalidConfigurationError {
                 parameter_name: "batched_access input lengths".to_string(),
@@ -581,8 +653,16 @@ impl<V: OramBlock> ObliviousStash<V> {
             });
         }
 
-        // For sanity and to avoid ambiguous semantics / duplicate stash entries,
-        // require distinct logical addresses in one batch.
+        /*
+            For this callback interface, duplicate logical addresses are ambiguous.
+
+            Example:
+                read A, write A, read A
+
+            Should the second read see the old value or the value written earlier
+            in the same batch? Since your function applies one callback to all old
+            values at once, the clean semantics require distinct addresses.
+        */
         // for i in 0..addresses.len() {
         //     for j in (i + 1)..addresses.len() {
         //         if addresses[i] == addresses[j] {
@@ -600,17 +680,28 @@ impl<V: OramBlock> ObliviousStash<V> {
         let mut results: Vec<V> = vec![V::default(); addresses.len()];
         let mut found: Vec<Choice> = vec![0.into(); addresses.len()];
 
-        // First pass: read old values out of the stash.
-        for block in &self.blocks {
-            for i in 0..addresses.len() {
-                let is_requested_index = block.address.ct_eq(&addresses[i]);
+        /*
+            First pass: read old values from the client stash.
 
-                found[i].conditional_assign(&1.into(), is_requested_index);
-                results[i].conditional_assign(&block.value, is_requested_index);
+            This assumes read_from_path_union has already been called, so the stash
+            currently contains all real blocks from the touched union plus any
+            previous overflow stash blocks.
+        */
+        for block in &self.blocks {
+            for request_index in 0..addresses.len() {
+                let is_requested_index = block.address.ct_eq(&addresses[request_index]);
+
+                found[request_index].conditional_assign(&1.into(), is_requested_index);
+                results[request_index].conditional_assign(&block.value, is_requested_index);
             }
         }
 
-        // Apply the batched callback once.
+        /*
+            Apply the user-supplied batched operation.
+
+            For a read, the callback should return the same value.
+            For a write, the callback should return the replacement value.
+        */
         let callback_input: Vec<&V> = results.iter().collect();
         let values_to_write = value_callback(callback_input);
 
@@ -625,31 +716,41 @@ impl<V: OramBlock> ObliviousStash<V> {
             });
         }
 
-        // Second pass: update all existing matching blocks in-place.
+        /*
+            Second pass: update all existing matching blocks in-place.
+
+            The position must become the freshly sampled position, regardless of
+            whether the logical operation was a read or a write.
+        */
         for block in &mut self.blocks {
-            for i in 0..addresses.len() {
-                let is_requested_index = block.address.ct_eq(&addresses[i]);
+            for request_index in 0..addresses.len() {
+                let is_requested_index = block.address.ct_eq(&addresses[request_index]);
 
                 block
                     .position
-                    .conditional_assign(&new_positions[i], is_requested_index);
+                    .conditional_assign(&new_positions[request_index], is_requested_index);
+
                 block
                     .value
-                    .conditional_assign(&values_to_write[i], is_requested_index);
+                    .conditional_assign(&values_to_write[request_index], is_requested_index);
             }
         }
 
-        // Count how many requested addresses were not found.
-        let missing_count = found.iter().filter(|c| !bool::from(**c)).count();
+        /*
+            Insert missing addresses.
 
-        // Count currently available dummy slots.
+            This covers the same case as ordinary Path ORAM initialization-on-first-write
+            or sparse logical memory: if an address is requested but no block exists yet,
+            create it in the client stash with the fresh position.
+        */
+        let missing_count = found.iter().filter(|choice| !bool::from(**choice)).count();
+
         let available_dummy_count = self
             .blocks
             .iter()
             .filter(|block| bool::from(block.ct_is_dummy()))
             .count();
 
-        // If needed, extend stash with dummy blocks so we can initialize all misses.
         if missing_count > available_dummy_count {
             self.blocks.resize(
                 self.blocks.len() + (missing_count - available_dummy_count),
@@ -657,34 +758,33 @@ impl<V: OramBlock> ObliviousStash<V> {
             );
         }
 
-        // Initialize one new stash block for each missing address.
-        // We fill from the end, preferring dummy blocks near the back.
         let mut next_free_slot = self.blocks.len();
 
-        for i in 0..addresses.len() {
-            if !bool::from(found[i]) {
-                loop {
-                    if next_free_slot == 0 {
-                        return Err(OramError::InvalidConfigurationError {
-                            parameter_name: "stash dummy capacity".to_string(),
-                            parameter_value: "no dummy block available for batch insertion"
-                                .to_string(),
-                        });
-                    }
+        for request_index in 0..addresses.len() {
+            if bool::from(found[request_index]) {
+                continue;
+            }
 
-                    next_free_slot -= 1;
-
-                    if bool::from(self.blocks[next_free_slot].ct_is_dummy()) {
-                        break;
-                    }
+            loop {
+                if next_free_slot == 0 {
+                    return Err(OramError::InvalidConfigurationError {
+                        parameter_name: "stash dummy capacity".to_string(),
+                        parameter_value: "no dummy block available for batch insertion".to_string(),
+                    });
                 }
 
-                self.blocks[next_free_slot] = PathOramBlock {
-                    value: values_to_write[i],
-                    address: addresses[i],
-                    position: new_positions[i],
-                };
+                next_free_slot -= 1;
+
+                if bool::from(self.blocks[next_free_slot].ct_is_dummy()) {
+                    break;
+                }
             }
+
+            self.blocks[next_free_slot] = PathOramBlock {
+                value: values_to_write[request_index],
+                address: addresses[request_index],
+                position: new_positions[request_index],
+            };
         }
 
         Ok(results)
